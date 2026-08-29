@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>neai 出力先の総当たり試験</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; padding:12px 12px 40px; background:#0a0a0c; color:#e8e8ea;
+         font:15px/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif; }
+  h1 { font-size:17px; margin:4px 0 6px; }
+  h2 { font-size:15px; margin:0 0 10px; }
+  section { border:1px solid #26262b; border-radius:12px; padding:14px; margin-bottom:14px; background:#111114; }
+  p.note { margin:8px 0 0; font-size:12.5px; color:#8b8b95; }
+  button { display:block; width:100%; margin:8px 0 0; padding:15px 14px; font:inherit; font-weight:600;
+           color:#fff; background:#2b2b33; border:1px solid #3a3a44; border-radius:10px; text-align:left; }
+  button:active { background:#3a3a46; }
+  button:disabled { opacity:.35; }
+  button.primary { background:#1d4ed8; border-color:#2563eb; text-align:center; }
+  .row { display:flex; gap:8px; }
+  .row > button { flex:1; text-align:center; }
+  .stat { display:flex; justify-content:space-between; gap:10px; padding:5px 0;
+          border-bottom:1px solid #1e1e23; font-size:13px; }
+  .stat:last-child { border-bottom:0; }
+  .stat b { font-weight:600; color:#9a9aa6; }
+  .ok{color:#4ade80} .ng{color:#f87171} .warn{color:#fbbf24} .dim{color:#6b6b76}
+  #ask { display:none; border:1px solid #3a3a44; border-radius:10px; padding:12px; margin-top:12px; background:#17171c; }
+  #ask.on { display:block; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; margin-top:4px; }
+  th,td { text-align:left; padding:6px 4px; border-bottom:1px solid #1e1e23; vertical-align:top; }
+  th { color:#9a9aa6; font-weight:600; }
+  #log { margin:0; padding:10px; height:180px; overflow-y:auto; background:#08080a;
+         border:1px solid #26262b; border-radius:8px;
+         font:11.5px/1.5 ui-monospace, Menlo, monospace; white-space:pre-wrap; word-break:break-all; color:#b8b8c2; }
+  #log .t { color:#5c5c68; }
+  .meter { height:8px; background:#1e1e23; border-radius:4px; overflow:hidden; margin-top:8px; }
+  .meter > i { display:block; height:100%; width:0%; background:#4ade80; }
+</style>
+</head>
+<body>
+
+<h1>neai — 音の出力先はどこか</h1>
+<p class="note" style="margin-bottom:14px">
+iOSはマイク取得中に出力先を受話口へ回す。常設端末として使える出し方があるかを総当たりで探す。
+各テストは4秒鳴るので、<b>どこから聞こえたかを毎回記録</b>すること。</p>
+
+<section>
+  <h2>準備</h2>
+  <div class="stat"><b>AudioSession API</b><span id="s-as">—</span></div>
+  <div class="stat"><b>現在の type</b><span id="s-type">—</span></div>
+  <div class="stat"><b>マイク / カメラ</b><span id="s-mic">未取得</span></div>
+  <div class="stat"><b>取得方法</b><span id="s-mode">—</span></div>
+  <div class="stat"><b>マイク入力レベル</b><span id="s-lvl">—</span></div>
+  <div class="meter"><i id="meter"></i></div>
+  <div class="row">
+    <button class="primary" id="bgetav">音声＋映像で取得</button>
+    <button class="primary" id="bgeta">音声のみで取得</button>
+  </div>
+  <button id="brel">解放する</button>
+  <p class="note"><b>取得方法で出力先が変わるという仮説を検証する。</b>
+  同じテストを「音声＋映像」と「音声のみ」の両方で実行して比べること。
+  テスト1だけは取得前に実行する。</p>
+</section>
+
+<section>
+  <h2>テスト</h2>
+  <div id="tests"></div>
+  <div id="ask">
+    <div id="ask-name" style="font-weight:600;margin-bottom:4px"></div>
+    <div class="note" style="margin:0 0 4px">どこから聞こえた？</div>
+    <div class="row">
+      <button data-r="スピーカー">本体スピーカー</button>
+      <button data-r="受話口">受話口</button>
+      <button data-r="無音">聞こえない</button>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>結果</h2>
+  <table id="tbl"><thead><tr><th>テスト</th><th>取得</th><th>聞こえ方</th><th>拾い</th><th>マイク</th></tr></thead><tbody></tbody></table>
+  <p class="note">「マイク拾い」は再生中に自分のマイクが拾った音量。
+  スピーカーから出ていれば大きく、受話口なら小さい。耳の判断を裏づける材料。</p>
+</section>
+
+<section>
+  <h2>ログ</h2>
+  <pre id="log"></pre>
+  <div class="row">
+    <button id="bcopy">コピー</button>
+    <button id="bstop">マイクを解放</button>
+  </div>
+</section>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const logEl = $("log");
+
+  function log(msg, cls) {
+    const d = new Date();
+    const ts = d.toTimeString().slice(0,8) + "." + String(d.getMilliseconds()).padStart(3,"0");
+    const line = document.createElement("div");
+    line.innerHTML = '<span class="t">' + ts + "</span>  ";
+    const b = document.createElement("span");
+    if (cls) b.className = cls;
+    b.textContent = msg;
+    line.appendChild(b);
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  let stream = null, audioTrack = null, videoTrack = null;
+  let audioCtx = null, analyser = null, raf = 0, lastRms = 0;
+  const results = [];
+  const dbOf = (r) => (r <= 1e-7 ? -100 : Math.max(-100, 20 * Math.log10(r)));
+
+  const AS = navigator.audioSession;
+  $("s-as").innerHTML = AS ? '<span class="ok">あり</span>' : '<span class="ng">なし</span>';
+  const showType = () => { $("s-type").textContent = AS ? AS.type : "—"; };
+  showType();
+  log("端末: " + navigator.userAgent);
+  log("AudioSession API: " + (AS ? "あり / type=" + AS.type : "なし"));
+
+  async function ctx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") await audioCtx.resume();
+    return audioCtx;
+  }
+
+  function meterOn(s) {
+    const a = audioCtx.createAnalyser();
+    a.fftSize = 1024;
+    audioCtx.createMediaStreamSource(s).connect(a);
+    analyser = a;
+    const buf = new Float32Array(a.fftSize);
+    cancelAnimationFrame(raf);
+    (function tick() {
+      a.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+      lastRms = Math.sqrt(sum / buf.length);
+      const db = dbOf(lastRms);
+      $("meter").style.width = Math.max(0, Math.min(100, (db + 70) * (100/70))) + "%";
+      $("s-lvl").textContent = db.toFixed(1) + " dBFS";
+      raf = requestAnimationFrame(tick);
+    })();
+  }
+
+  const peak = (ms) => new Promise((res) => {
+    const v = [];
+    const id = setInterval(() => v.push(lastRms), 50);
+    setTimeout(() => { clearInterval(id); v.sort((a,b)=>a-b);
+      res(dbOf(v[Math.floor(v.length*0.9)] || 0)); }, ms);
+  });
+
+  let mode = null;
+  async function acquire(withVideo) {
+    try {
+      release(true);
+      await ctx();
+      const c = { audio: { echoCancellation: true } };
+      if (withVideo) c.video = { facingMode: "environment" };
+      stream = await navigator.mediaDevices.getUserMedia(c);
+      audioTrack = stream.getAudioTracks()[0];
+      videoTrack = withVideo ? stream.getVideoTracks()[0] : null;
+      mode = withVideo ? "音声＋映像" : "音声のみ";
+      meterOn(stream);
+      $("s-mic").innerHTML = '<span class="ok">取得済み</span>';
+      $("s-mode").innerHTML = '<span class="ok">' + mode + "</span>";
+      $("bgetav").disabled = $("bgeta").disabled = true;
+      showType();
+      log("取得: " + mode + " / type=" + (AS ? AS.type : "—"), "ok");
+      render();
+    } catch (e) { log("取得失敗: " + e.name + " — " + e.message, "ng"); }
+  }
+  function release(quiet) {
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    cancelAnimationFrame(raf);
+    stream = audioTrack = videoTrack = null;
+    mode = null;
+    $("s-mic").textContent = "未取得";
+    $("s-mode").textContent = "—";
+    $("bgetav").disabled = $("bgeta").disabled = false;
+    if (!quiet) { log("解放した。テスト1、または別の取得方法を試せる。", "warn"); render(); }
+  }
+  $("bgetav").onclick = () => acquire(true);
+  $("bgeta").onclick = () => acquire(false);
+  $("brel").onclick = () => release(false);
+
+  // ---- 音の出し方いろいろ ----
+  async function tone(seconds, destNode) {
+    const c = await ctx();
+    const osc = c.createOscillator(), g = c.createGain();
+    osc.frequency.value = 440; g.gain.value = 0.3;
+    osc.connect(g).connect(destNode || c.destination);
+    osc.start();
+    return { stop: () => osc.stop() };
+  }
+
+  async function playWebAudio(ms) {
+    const t = await tone(ms / 1000);
+    const lvl = await peak(ms);
+    t.stop();
+    return lvl;
+  }
+
+  async function withType(type, fn) {
+    if (!AS) { log("AudioSession APIが無いので type=" + type + " は試せない", "ng"); return null; }
+    const prev = AS.type;
+    try {
+      AS.type = type;
+      showType();
+      log("type を " + type + " に設定 → 実際: " + AS.type,
+          AS.type === type ? "ok" : "warn");
+      if (AS.type !== type) log("設定が拒否/上書きされた", "warn");
+      return await fn();
+    } finally {
+      try { AS.type = prev; showType(); } catch (e) {}
+    }
+  }
+
+  // WebRTCループバック：第1段階で実際に音を鳴らす経路をそのまま再現する
+  async function loopback(withVideo, ms) {
+    const c = await ctx();
+    const pc1 = new RTCPeerConnection(), pc2 = new RTCPeerConnection();
+    pc1.onicecandidate = (e) => e.candidate && pc2.addIceCandidate(e.candidate);
+    pc2.onicecandidate = (e) => e.candidate && pc1.addIceCandidate(e.candidate);
+
+    const dest = c.createMediaStreamDestination();
+    const osc = c.createOscillator(), g = c.createGain();
+    osc.frequency.value = 440; g.gain.value = 0.3;
+    osc.connect(g).connect(dest);
+    osc.start();
+
+    pc1.addTrack(dest.stream.getAudioTracks()[0], dest.stream);
+    if (withVideo) {
+      if (!videoTrack || videoTrack.readyState !== "live") {
+        log("映像トラックが無いので音声のみで実行", "warn");
+      } else {
+        pc1.addTrack(videoTrack, stream);
+        log("映像トラックも載せた（映像通話扱いになるかを見る）");
+      }
+    }
+
+    const el = document.createElement("audio");
+    el.autoplay = true; el.playsInline = true;
+    document.body.appendChild(el);
+    const got = new Promise((res) => {
+      pc2.ontrack = (e) => { if (e.track.kind === "audio") { el.srcObject = e.streams[0]; res(); } };
+    });
+
+    const offer = await pc1.createOffer();
+    await pc1.setLocalDescription(offer);
+    await pc2.setRemoteDescription(offer);
+    const answer = await pc2.createAnswer();
+    await pc2.setLocalDescription(answer);
+    await pc1.setRemoteDescription(answer);
+    await got;
+    try { await el.play(); } catch (e) { log("audio要素の再生に失敗: " + e.message, "ng"); }
+    log("WebRTCループバック確立。audio要素で再生中。type=" + (AS ? AS.type : "—"));
+
+    const lvl = await peak(ms);
+    osc.stop(); pc1.close(); pc2.close(); el.remove();
+    return lvl;
+  }
+
+  // ---- テスト定義 ----
+  const TESTS = [
+    { name: "1. マイク未取得 + WebAudio", mic: false,
+      note: "基準値。取得前に実行すること", run: () => playWebAudio(4000) },
+    { name: "2. マイク取得中 + WebAudio", mic: true,
+      note: "既知の問題を再現する", run: () => playWebAudio(4000) },
+    { name: "3. マイク取得中 + type=playback", mic: true,
+      note: "スピーカーへ戻せるか。マイクが死なないかも見る",
+      run: () => withType("playback", () => playWebAudio(4000)) },
+    { name: "4. マイク取得中 + type=play-and-record", mic: true,
+      note: "明示指定でも受話口のままか", run: () => withType("play-and-record", () => playWebAudio(4000)) },
+    { name: "5. WebRTCループバック（音声のみ）", mic: true,
+      note: "第1段階の実際の再生経路。WebAudioと違う可能性がある", run: () => loopback(false, 4000) },
+    { name: "6. WebRTCループバック（映像あり）", mic: true,
+      note: "映像通話扱いならスピーカーに回るという説の検証", run: () => loopback(true, 4000) },
+    { name: "7. 話してマイク生存確認", mic: true, speak: true,
+      note: "6秒間ふつうに話す。マイクが生きているかの基準値",
+      run: () => peak(6000) },
+    { name: "8. type=playback 中に話す", mic: true, speak: true,
+      note: "playback にするとマイクが死ぬのではという疑いの検証",
+      run: () => withType("playback", () => peak(6000)) },
+  ];
+
+  function render() {
+    const box = $("tests");
+    box.innerHTML = "";
+    TESTS.forEach((t, i) => {
+      const b = document.createElement("button");
+      const done = results.find((r) => r.name === t.name && r.mode === (mode || "未取得"));
+      b.innerHTML = t.name + (done ? ' <span class="ok">済</span>' : "") +
+        '<br><span class="note" style="font-weight:400">' + t.note + "</span>";
+      b.disabled = (t.mic && !audioTrack) || (!t.mic && !!audioTrack);
+      b.onclick = () => runTest(t);
+      box.appendChild(b);
+    });
+  }
+
+  let pending = null;
+  async function runTest(t) {
+    $("tests").querySelectorAll("button").forEach((b) => (b.disabled = true));
+    log("── " + t.name + " ──");
+    if (t.speak) log("いまから6秒、ふつうの声で話しかけること", "warn");
+    let lvl = null;
+    try { lvl = await t.run(); }
+    catch (e) { log("失敗: " + e.name + " — " + e.message, "ng"); }
+    const micState = audioTrack
+      ? audioTrack.readyState + (audioTrack.muted ? "/muted" : "") : "未取得";
+    pending = { name: t.name, lvl, micState, mode: mode || "未取得" };
+
+    if (t.speak) {
+      const alive = lvl !== null && lvl > -55;
+      log("話しかけたときのレベル: " + (lvl === null ? "—" : lvl.toFixed(1) + "dBFS") +
+          " → マイクは" + (alive ? "生きている" : "死んでいる（声を拾っていない）"),
+          alive ? "ok" : "ng");
+      commit(alive ? "マイク生存" : "マイク死亡");
+      return;
+    }
+    log("再生中のマイク拾い: " + (lvl === null ? "—" : lvl.toFixed(1) + "dBFS") +
+        " / マイク: " + micState);
+    $("ask-name").textContent = t.name + "（" + (mode || "未取得") + "）";
+    $("ask").classList.add("on");
+  }
+
+  function commit(heard) {
+    const r = Object.assign({ heard }, pending);
+    const old = results.findIndex((x) => x.name === r.name && x.mode === r.mode);
+    if (old >= 0) results[old] = r; else results.push(r);
+    log("記録: " + r.name + "（" + r.mode + "） → " + heard,
+        heard === "スピーカー" || heard === "マイク生存" ? "ok"
+          : heard === "受話口" ? "warn" : "ng");
+    $("ask").classList.remove("on");
+    pending = null;
+    drawTable();
+    render();
+    verdict();
+  }
+  $("ask").querySelectorAll("button").forEach((b) => {
+    b.onclick = () => commit(b.dataset.r);
+  });
+
+  function drawTable() {
+    const tb = $("tbl").querySelector("tbody");
+    tb.innerHTML = "";
+    results.forEach((r) => {
+      const tr = document.createElement("tr");
+      const cls = (r.heard === "スピーカー" || r.heard === "マイク生存") ? "ok"
+        : r.heard === "受話口" ? "warn" : "ng";
+      tr.innerHTML = "<td>" + r.name.replace(/^\d+\.\s*/, "") + "</td>" +
+        "<td>" + r.mode + "</td>" +
+        '<td class="' + cls + '">' + r.heard + "</td>" +
+        "<td>" + (r.lvl === null ? "—" : r.lvl.toFixed(1)) + "</td>" +
+        '<td class="' + (r.micState.includes("live") ? "" : "ng") + '">' + r.micState + "</td>";
+      tb.appendChild(tr);
+    });
+  }
+
+  function verdict() {
+    const av = results.filter((r) => r.mode === "音声＋映像" && r.heard === "受話口").length;
+    const ao = results.filter((r) => r.mode === "音声のみ" && r.heard === "受話口").length;
+    const avS = results.filter((r) => r.mode === "音声＋映像" && r.heard === "スピーカー").length;
+    const aoS = results.filter((r) => r.mode === "音声のみ" && r.heard === "スピーカー").length;
+    if (avS && ao && !av && !aoS) {
+      log("★★ 仮説が裏づけられた：映像トラックを保持している間だけスピーカーへ出る。" +
+          "音声のみの取得では受話口になる。→ 実装では映像トラックを常時保持すること。", "ok");
+    } else if (avS && aoS) {
+      log("★ 取得方法によらずスピーカーから出た。出力先は制約にならない。", "ok");
+    }
+    const dead = results.filter((r) => r.heard === "マイク死亡");
+    if (dead.length) {
+      log("▲ マイクが死ぬ条件が見つかった: " + dead.map((d) => d.name).join(" / ") +
+          " → この設定は使えない。", "ng");
+    }
+  }
+
+  $("bcopy").onclick = async () => {
+    const summary = "\n=== 結果表 ===\n" + results.map((r) =>
+      r.name + "（" + r.mode + "） → " + r.heard + " / 拾い " +
+      (r.lvl === null ? "—" : r.lvl.toFixed(1) + "dBFS") + " / マイク " + r.micState).join("\n");
+    try { await navigator.clipboard.writeText(logEl.innerText + summary); log("コピーした", "ok"); }
+    catch (e) { log("コピー失敗: " + e.message, "warn"); }
+  };
+
+  $("bstop").onclick = () => release(false);
+
+  window.addEventListener("error", (e) => log("未捕捉エラー: " + e.message, "ng"));
+  render();
+})();
+</script>
+</body>
+</html>

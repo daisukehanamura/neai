@@ -1,0 +1,28 @@
+{
+  "name": "neai",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "proxy": "node scripts/dev-proxy.mjs",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "dependencies": {
+    "@picovoice/porcupine-web": "^4.0.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "vosk-browser": "^0.0.8"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.13.14",
+    "@cloudflare/workers-types": "^5.20260828.1",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.9",
+    "wrangler": "^4.42.0"
+  }
+}

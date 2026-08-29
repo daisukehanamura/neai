@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>neai 第0段階 実機検証</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; padding: 12px 12px 40px;
+    background: #0a0a0c; color: #e8e8ea;
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+  }
+  h1 { font-size: 17px; margin: 4px 0 14px; letter-spacing: .02em; }
+  h2 { font-size: 15px; margin: 0 0 10px; color: #fff; }
+  section {
+    border: 1px solid #26262b; border-radius: 12px;
+    padding: 14px; margin-bottom: 14px; background: #111114;
+  }
+  p.note { margin: 8px 0 0; font-size: 12.5px; color: #8b8b95; }
+  button {
+    display: block; width: 100%; margin: 8px 0 0; padding: 15px 14px;
+    font: inherit; font-weight: 600; color: #fff;
+    background: #2b2b33; border: 1px solid #3a3a44; border-radius: 10px;
+  }
+  button:active { background: #3a3a46; }
+  button:disabled { opacity: .38; }
+  button.primary { background: #1d4ed8; border-color: #2563eb; }
+  button.danger  { background: #4c1d1d; border-color: #6b2626; }
+  .row { display: flex; gap: 8px; }
+  .row > button { flex: 1; }
+  .stat { display: flex; justify-content: space-between; gap: 10px;
+          padding: 5px 0; border-bottom: 1px solid #1e1e23; font-size: 13px; }
+  .stat:last-child { border-bottom: 0; }
+  .stat b { font-weight: 600; color: #9a9aa6; }
+  .ok   { color: #4ade80; } .ng { color: #f87171; } .warn { color: #fbbf24; }
+  .meter { height: 10px; background: #1e1e23; border-radius: 5px; overflow: hidden; margin-top: 10px; }
+  .meter > i { display: block; height: 100%; width: 0%; background: #4ade80; transition: width .06s linear; }
+  video, canvas.preview { width: 100%; border-radius: 8px; background: #000; margin-top: 10px; display: block; }
+  #log {
+    margin: 0; padding: 10px; height: 240px; overflow-y: auto;
+    background: #08080a; border: 1px solid #26262b; border-radius: 8px;
+    font: 11.5px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap;
+    word-break: break-all; color: #b8b8c2;
+  }
+  #log .t { color: #5c5c68; }
+  #elapsed { font: 600 30px/1.2 ui-monospace, Menlo, monospace; margin: 10px 0 0; }
+</style>
+</head>
+<body>
+
+<h1>neai — 第0段階 実機検証</h1>
+
+<!-- ============ 検証① ============ -->
+<section>
+  <h2>① マイクとカメラの同時保持</h2>
+  <button class="primary" id="b1a">A. 一括取得する（音声＋映像を1回で）</button>
+  <div class="stat"><b>音声トラック</b><span id="s-audio">—</span></div>
+  <div class="stat"><b>映像トラック</b><span id="s-video">—</span></div>
+  <div class="stat"><b>マイク入力レベル</b><span id="s-level">—</span></div>
+  <div class="meter"><i id="meter"></i></div>
+  <video id="preview" playsinline autoplay muted></video>
+
+  <button id="b1c" disabled>B. フレームを1枚取り出す（第2段階の要）</button>
+  <canvas class="preview" id="shot" hidden></canvas>
+
+  <button id="b1b" disabled>C. あとからカメラを単独取得する（破壊的・必ず最後に）</button>
+  <p class="note">iOSは同時に1つのカメラしか掴めないため、2本目を取ると1本目の映像が
+  ended になる可能性が高い。ここで見るのは<b>音声が生き残るか</b>。
+  映像が壊れるので必ず B より後に実行すること。</p>
+</section>
+
+<!-- ============ 検証② ============ -->
+<section>
+  <h2>② エコーキャンセル</h2>
+  <p class="note">スピーカーから440Hzを鳴らしながらマイク入力を測る。
+  無音時との差が小さいほど、自分の声を拾っていない＝良い。</p>
+  <button id="b2play">まず440Hzを鳴らす（聞こえるか・どこから鳴るかを確認）</button>
+  <div class="row">
+    <button id="b2on">AECあり で計測</button>
+    <button id="b2off">AECなし で計測</button>
+  </div>
+  <p class="note">両方を実行しないと判定は出ない。片方だけでは
+  「AECが効いている」のか「そもそも音が届いていない」のか区別できない。</p>
+  <div class="stat"><b>要求 / 実際の設定</b><span id="s-ec">—</span></div>
+  <div class="stat"><b>無音時</b><span id="s-base">—</span></div>
+  <div class="stat"><b>発音時</b><span id="s-tone">—</span></div>
+  <div class="stat"><b>差分（小さいほど良い）</b><span id="s-delta">—</span></div>
+  <div class="stat"><b>判定</b><span id="s-verdict">両方を実行すると出る</span></div>
+  <p class="note">注意：iOSはマイク取得中、音の出力先が本体スピーカーではなく
+  受話口（耳に当てる側）に切り替わることがある。音が小さいと感じたら、その現象。
+  常設端末の音量設計に直結するので、聞こえ方もログに残すこと。</p>
+</section>
+
+<!-- ============ 検証③ ============ -->
+<section>
+  <h2>③ 画面スリープ防止と長時間安定性</h2>
+  <button id="b3" disabled>長時間監視を開始（先に①を実行）</button>
+  <div id="elapsed">00:00:00</div>
+  <div class="stat"><b>Wake Lock</b><span id="s-wl">—</span></div>
+  <div class="stat"><b>復帰回数</b><span id="s-reacq">0</span></div>
+  <p class="note">給電したまま数時間放置する。30秒ごとに状態を記録するので、
+  あとからログを見れば、いつ何が落ちたかがわかる。</p>
+</section>
+
+<section>
+  <h2>ログ</h2>
+  <pre id="log"></pre>
+  <div class="row">
+    <button id="bcopy">コピー</button>
+    <button class="danger" id="bstop">全部停止</button>
+  </div>
+</section>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const logEl = $("log");
+  const started = Date.now();
+
+  function log(msg, cls) {
+    const d = new Date();
+    const ts = d.toTimeString().slice(0, 8) + "." + String(d.getMilliseconds()).padStart(3, "0");
+    const line = document.createElement("div");
+    line.innerHTML = '<span class="t">' + ts + "</span>  ";
+    const body = document.createElement("span");
+    if (cls) body.className = cls;
+    body.textContent = msg;
+    line.appendChild(body);
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  log("端末: " + navigator.userAgent);
+  log("保護されたコンテキスト: " + window.isSecureContext);
+  if (!window.isSecureContext) {
+    log("HTTPSでないため getUserMedia は失敗する。HTTPSで開き直すこと。", "ng");
+  }
+
+  // ---------- 共有状態 ----------
+  let mainStream = null, audioTrack = null, videoTrack = null, muteCount = 0;
+  let extraStream = null;
+  let audioCtx = null, analyser = null, meterRaf = 0, lastRms = 0;
+  let wakeLock = null, hbTimer = 0, elapsedTimer = 0, monitorStart = 0, reacq = 0;
+
+  const dbOf = (rms) => (rms <= 1e-7 ? -100 : Math.max(-100, 20 * Math.log10(rms)));
+
+  function watchTrack(track, label) {
+    const report = (ev) => (ev === "mute" && muteCount++, log("[" + label + "] " + ev +
+      " / readyState=" + track.readyState + " muted=" + track.muted,
+      (ev === "ended" || ev === "mute") ? "ng" : "ok"));
+    track.addEventListener("ended", () => report("ended"));
+    track.addEventListener("mute", () => report("mute"));
+    track.addEventListener("unmute", () => report("unmute"));
+  }
+
+  function trackText(t) {
+    if (!t) return "—";
+    const dead = t.readyState !== "live" || t.muted;
+    return '<span class="' + (dead ? "ng" : "ok") + '">' +
+      t.readyState + (t.muted ? " / muted" : "") + "</span>";
+  }
+
+  function refreshTrackStats() {
+    $("s-audio").innerHTML = trackText(audioTrack);
+    $("s-video").innerHTML = trackText(videoTrack);
+  }
+
+  // ---------- マイクレベル計測 ----------
+  async function attachMeter(stream) {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") await audioCtx.resume();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 1024;
+    audioCtx.createMediaStreamSource(stream).connect(analyser);
+    const buf = new Float32Array(analyser.fftSize);
+    cancelAnimationFrame(meterRaf);
+    const tick = () => {
+      analyser.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+      lastRms = Math.sqrt(sum / buf.length);
+      const db = dbOf(lastRms);
+      $("meter").style.width = Math.max(0, Math.min(100, (db + 70) * (100 / 70))) + "%";
+      $("s-level").textContent = db.toFixed(1) + " dBFS";
+      meterRaf = requestAnimationFrame(tick);
+    };
+    tick();
+  }
+
+  const measure = (ms) => new Promise((resolve) => {
+    const samples = [];
+    const id = setInterval(() => samples.push(lastRms), 50);
+    setTimeout(() => {
+      clearInterval(id);
+      samples.sort((a, b) => a - b);
+      resolve(dbOf(samples[Math.floor(samples.length * 0.9)] || 0));
+    }, ms);
+  });
+
+  // ---------- ① 一括取得 ----------
+  $("b1a").onclick = async () => {
+    try {
+      log("getUserMedia({audio, video}) を1回で要求");
+      mainStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      audioTrack = mainStream.getAudioTracks()[0];
+      videoTrack = mainStream.getVideoTracks()[0];
+      watchTrack(audioTrack, "音声");
+      watchTrack(videoTrack, "映像");
+      log("取得成功", "ok");
+      log("音声設定: " + JSON.stringify(audioTrack.getSettings()));
+      log("映像設定: " + JSON.stringify(videoTrack.getSettings()));
+      $("preview").srcObject = mainStream;
+      await attachMeter(mainStream);
+      refreshTrackStats();
+      setInterval(refreshTrackStats, 1000);
+      $("b1b").disabled = $("b1c").disabled = $("b3").disabled = false;
+      $("b1a").disabled = true;
+    } catch (e) {
+      log("取得失敗: " + e.name + " — " + e.message, "ng");
+    }
+  };
+
+  // ---------- ① 2本目のカメラ（本命） ----------
+  $("b1b").onclick = async () => {
+    const before = { state: audioTrack.readyState, muted: audioTrack.muted, rms: lastRms };
+    log("2本目 getUserMedia({video}) を要求 — 直前の音声: " +
+        before.state + " muted=" + before.muted + " " + dbOf(before.rms).toFixed(1) + "dBFS");
+    try {
+      extraStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      log("2本目の取得に成功", "ok");
+      $("preview").srcObject = extraStream;
+      videoTrack = extraStream.getVideoTracks()[0];
+      watchTrack(videoTrack, "映像2");
+      log("プレビューを2本目に張り替えた。Bの再実行が可能。");
+    } catch (e) {
+      log("2本目の取得に失敗: " + e.name + " — " + e.message, "ng");
+      return;
+    }
+    for (const wait of [500, 2000, 5000]) {
+      setTimeout(() => {
+        const dead = audioTrack.readyState !== "live" || audioTrack.muted;
+        const silent = dbOf(lastRms) < -75;
+        log(wait + "ms後 — 音声: " + audioTrack.readyState +
+            " muted=" + audioTrack.muted + " " + dbOf(lastRms).toFixed(1) + "dBFS" +
+            (dead ? "  ← トラックが死んだ" : silent ? "  ← 生きているが無音（要確認：話しかけて再判定）" : "  ← 健在"),
+            dead ? "ng" : silent ? "warn" : "ok");
+      }, wait);
+    }
+  };
+
+  // ---------- ① フレーム取り出し ----------
+  $("b1c").onclick = () => {
+    const v = $("preview");
+    if (!v.videoWidth) { log("映像がまだ来ていない", "ng"); return; }
+    const t0 = performance.now();
+    const scale = Math.min(1, 1024 / Math.max(v.videoWidth, v.videoHeight));
+    const cv = $("shot");
+    cv.width = Math.round(v.videoWidth * scale);
+    cv.height = Math.round(v.videoHeight * scale);
+    cv.getContext("2d").drawImage(v, 0, 0, cv.width, cv.height);
+    const url = cv.toDataURL("image/jpeg", 0.7);
+    cv.hidden = false;
+    log("フレーム取得 " + cv.width + "x" + cv.height +
+        " / " + Math.round(url.length / 1024) + "KB / " +
+        (performance.now() - t0).toFixed(1) + "ms", "ok");
+  };
+
+  // ---------- ② エコーキャンセル ----------
+  const aecResults = {};
+
+  $("b2play").onclick = async () => {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") await audioCtx.resume();
+    const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+    osc.frequency.value = 440; g.gain.value = 0.25;
+    osc.connect(g).connect(audioCtx.destination);
+    osc.start();
+    log("440Hzを3秒鳴らす — 聞こえるか、本体スピーカーか受話口かを確認すること");
+    setTimeout(() => { osc.stop(); log("停止"); }, 3000);
+  };
+
+  async function aecTest(want) {
+    $("b2on").disabled = $("b2off").disabled = $("b2play").disabled = true;
+    try {
+      [mainStream, extraStream].forEach((s) => s && s.getTracks().forEach((t) => t.stop()));
+      cancelAnimationFrame(meterRaf);
+      log("── AEC=" + want + " の計測開始 ──");
+      const s = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: want, noiseSuppression: false, autoGainControl: false }
+      });
+      audioTrack = s.getAudioTracks()[0];
+      mainStream = s;
+      const actual = audioTrack.getSettings().echoCancellation;
+      $("s-ec").innerHTML = "要求 " + want + " / 実際 " +
+        '<span class="' + (actual === want ? "ok" : "warn") + '">' + actual + "</span>";
+      log("実際に適用された設定: " + JSON.stringify(audioTrack.getSettings()),
+          actual === want ? "ok" : "warn");
+      if (actual !== want) {
+        log("iOSが要求を上書きした。AEC=" + want + " の計測は成立していない。", "warn");
+      }
+      await attachMeter(s);
+
+      log("マイクの立ち上がりを1秒待つ…");
+      await new Promise((r) => setTimeout(r, 1000));
+
+      log("静かにしたまま2秒計測…");
+      const base = await measure(2000);
+      $("s-base").textContent = base.toFixed(1) + " dBFS";
+      if (base <= -95) {
+        $("s-verdict").innerHTML = '<span class="ng">計測不成立</span>';
+        log("マイクが完全な無音。計測が成立していない。" +
+            "ページを再読み込みし、Aの一括取得を挟んでからやり直すこと。", "ng");
+        return;
+      }
+
+      log("440Hzを4秒鳴らす — 実際に聞こえるか耳でも確認すること");
+      const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+      osc.frequency.value = 440; g.gain.value = 0.25;
+      osc.connect(g).connect(audioCtx.destination);
+      osc.start();
+      const tone = await measure(4000);
+      osc.stop();
+      $("s-tone").textContent = tone.toFixed(1) + " dBFS";
+
+      const delta = tone - base;
+      aecResults[String(want)] = delta;
+      $("s-delta").innerHTML = '<span class="' +
+        (delta < 6 ? "ok" : delta < 15 ? "warn" : "ng") + '">' +
+        (delta >= 0 ? "+" : "") + delta.toFixed(1) + " dB</span>";
+      log("AEC=" + want + " 結果 — 無音 " + base.toFixed(1) +
+          " / 発音 " + tone.toFixed(1) + " / 差分 " +
+          (delta >= 0 ? "+" : "") + delta.toFixed(1) + "dB");
+      const btn = $(want ? "b2on" : "b2off");
+      btn.textContent = (want ? "AECあり" : "AECなし") +
+        " 済 (" + (delta >= 0 ? "+" : "") + delta.toFixed(1) + "dB)";
+      judge();
+    } catch (e) {
+      log("計測失敗: " + e.name + " — " + e.message, "ng");
+    } finally {
+      $("b2on").disabled = $("b2off").disabled = $("b2play").disabled = false;
+    }
+  }
+
+  function judge() {
+    const on = aecResults["true"], off = aecResults["false"];
+    if (on === undefined || off === undefined) {
+      const missing = on === undefined ? "AECあり" : "AECなし";
+      $("s-verdict").innerHTML = '<span class="warn">' + missing + " が未実施</span>";
+      log("判定には両方が要る。" + missing + " を実行すること。", "warn");
+      return;
+    }
+    let text, cls, note;
+    if (off < 3) {
+      text = "計測不成立"; cls = "ng";
+      note = "AECなしでもスピーカーの音がマイクに届いていない（差分 " + off.toFixed(1) + "dB）。" +
+             "音量が小さいか、音が受話口へ出ている。上の試聴ボタンで聞こえるか確かめ、" +
+             "音量を上げてから両方を再測定すること。";
+    } else if (off - on >= 10) {
+      text = "AECが効いている"; cls = "ok";
+      note = "なしで +" + off.toFixed(1) + "dB 拾うところを、ありで +" + on.toFixed(1) + "dB に抑えている。";
+    } else if (on < 6) {
+      text = "良好"; cls = "ok";
+      note = "AECありの回り込みが6dB未満。実用範囲。";
+    } else {
+      text = "要調整"; cls = "warn";
+      note = "AECありでも +" + on.toFixed(1) + "dB 回り込む。音量・マイク距離・設置方法の見直しが要る。";
+    }
+    $("s-verdict").innerHTML = '<span class="' + cls + '">' + text + "</span>";
+    log("判定: " + text + " — " + note, cls);
+  }
+
+  $("b2on").onclick = () => aecTest(true);
+  $("b2off").onclick = () => aecTest(false);
+
+  // ---------- ③ Wake Lock と長時間監視 ----------
+  async function acquireWakeLock(reason) {
+    if (!("wakeLock" in navigator)) {
+      $("s-wl").innerHTML = '<span class="ng">非対応</span>';
+      log("Wake Lock API 非対応", "ng");
+      return;
+    }
+    try {
+      wakeLock = await navigator.wakeLock.request("screen");
+      $("s-wl").innerHTML = '<span class="ok">保持中</span>';
+      log("Wake Lock 取得（" + reason + "）", "ok");
+      wakeLock.addEventListener("release", () => {
+        $("s-wl").innerHTML = '<span class="warn">解放された</span>';
+        log("Wake Lock が解放された", "warn");
+      });
+    } catch (e) {
+      $("s-wl").innerHTML = '<span class="ng">失敗</span>';
+      log("Wake Lock 取得失敗: " + e.name + " — " + e.message, "ng");
+    }
+  }
+
+  $("b3").onclick = async () => {
+    $("b3").disabled = true;
+    monitorStart = Date.now();
+    await acquireWakeLock("開始時");
+
+    document.addEventListener("visibilitychange", async () => {
+      log("画面表示状態: " + document.visibilityState,
+          document.visibilityState === "visible" ? "ok" : "warn");
+      if (document.visibilityState === "visible" && (!wakeLock || wakeLock.released)) {
+        reacq++;
+        $("s-reacq").textContent = String(reacq);
+        await acquireWakeLock("復帰時");
+      }
+    });
+
+    elapsedTimer = setInterval(() => {
+      const s = Math.floor((Date.now() - monitorStart) / 1000);
+      $("elapsed").textContent =
+        [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60]
+          .map((n) => String(n).padStart(2, "0")).join(":");
+    }, 1000);
+
+    hbTimer = setInterval(() => {
+      const a = audioTrack ? audioTrack.readyState + (audioTrack.muted ? "/muted" : "") : "なし";
+      const v = videoTrack ? videoTrack.readyState + (videoTrack.muted ? "/muted" : "") : "なし";
+      const wl = wakeLock ? (wakeLock.released ? "解放済" : "保持中") : "なし";
+      const bad = (audioTrack && (audioTrack.readyState !== "live" || audioTrack.muted)) ||
+                  (wakeLock && wakeLock.released);
+      log("定期記録 — 音声:" + a + " 映像:" + v + " WakeLock:" + wl +
+          " レベル:" + dbOf(lastRms).toFixed(1) + "dBFS" +
+          " mute発生:" + muteCount + "回", bad ? "ng" : null);
+    }, 30000);
+
+    log("長時間監視を開始。30秒ごとに記録する。給電したまま放置すること。", "ok");
+  };
+
+  // ---------- ログ操作 ----------
+  $("bcopy").onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(logEl.innerText);
+      log("ログをコピーした", "ok");
+    } catch (e) {
+      log("コピー失敗: " + e.message + "（手で選択してコピーすること）", "warn");
+    }
+  };
+
+  $("bstop").onclick = () => {
+    [mainStream, extraStream].forEach((s) => s && s.getTracks().forEach((t) => t.stop()));
+    cancelAnimationFrame(meterRaf);
+    clearInterval(hbTimer); clearInterval(elapsedTimer);
+    if (wakeLock && !wakeLock.released) wakeLock.release();
+    if (audioCtx) audioCtx.close();
+    log("すべて停止した。再検証するにはページを再読み込みすること。", "warn");
+  };
+
+  window.addEventListener("error", (e) => log("未捕捉エラー: " + e.message, "ng"));
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,196 @@
+# neai
+
+使っていない iPhone XR を、家庭に常設する自分専用のAI音声端末にする。
+
+- 設計と決定の経緯 … [設計.md](設計.md)
+- 元の要件メモ … [要件.txt](要件.txt)
+- 実機検証（第0段階） … [spike/README.md](spike/README.md)
+
+現在 **第1段階**（タップで開始する音声会話）まで実装済み。
+
+## 構成
+
+```
+iPhone ──HTTPS──> Cloudflare Worker ──> OpenAI /v1/realtime/calls
+   │                (APIキーを保持)
+   └──── WebRTC 音声 ────> OpenAI     ← Worker は経路に入らない
+```
+
+ブラウザが作った SDP offer を Worker が受け取り、セッション設定を添えて OpenAI へ中継する
+（Unified Interface）。この方式なら **APIキーもプロンプトもツール定義もクライアントに渡らない。**
+音声はブラウザと OpenAI が直結するので、中継による遅延が乗らない。
+
+```
+src/          Vite + React + TypeScript（単一画面）
+  realtime.ts WebRTC 接続・レイテンシ計測
+  App.tsx     UI
+worker/
+  index.ts    ルーティング・認証・SDP中継
+  config.ts   モデル名・instructions・セッション設定
+scripts/
+  dev-proxy.mjs  開発用 HTTPS 終端
+spike/        第0段階の実機検証ページ（本番には含まれない）
+```
+
+## セットアップ
+
+```bash
+npm install
+cp .dev.vars.example .dev.vars
+```
+
+`.dev.vars` に OpenAI の API キーを入れる。
+
+```
+OPENAI_API_KEY=sk-proj-...
+```
+
+キーは https://platform.openai.com/api-keys で発行する。
+**使い始める前に Usage limits で月額上限を必ず設定すること。**
+
+## 費用
+
+課金は接続時間ではなく**トークン単位**。ただし接続中はマイク音声を送り続けるため、
+つないでいる時間がそのまま費用になる。
+
+100万トークンあたりの価格（2026-08-29 時点 / [公式](https://developers.openai.com/api/docs/pricing)）:
+
+| | gpt-realtime-2.1 | gpt-realtime-2.1-mini |
+|---|---|---|
+| 音声入力 | $32.00 | $10.00 |
+| 音声入力（キャッシュ） | $0.40 | $0.30 |
+| 音声出力 | $64.00 | $20.00 |
+| 画像入力 | $5.00 | $0.80 |
+
+音声はおよそ入力600トークン/分・出力1200トークン/分。目安は次のとおり。
+
+| 使い方 | gpt-realtime-2.1 | mini |
+|---|---|---|
+| 1往復の短い会話（10秒聞いて5秒話す） | 約1.5円 | 約0.5円 |
+| 接続しっぱなし1時間 | **約170円** | 約54円 |
+| 24時間つなぎっぱなし1ヶ月 | **約12万円** | 約3.9万円 |
+
+**つなぎっぱなしにしないこと。** 対策を2つ入れてある。
+
+1. **無操作60秒で自動切断する。** `src/realtime.ts` の `IDLE_LIMIT_SEC` で変更できる。
+2. **画面に実費用を表示する。** OpenAI が `response.done` で返す実測トークン数から計算しており、
+   推定値ではない。
+
+根本的な対策は第3段階のウェイクワード。「ねえAI」を端末側で検出するまで
+OpenAI へ音声を送らないようにすれば、待機中の費用がゼロになる。
+
+安く試したい場合は `wrangler.jsonc` の `REALTIME_MODEL` を
+`gpt-realtime-2.1-mini` にする。価格は約3分の1。
+
+## 環境変数
+
+| 名前 | 置き場所 | 必須 | 用途 |
+|---|---|---|---|
+| `OPENAI_API_KEY` | `.dev.vars` / Worker Secret | ○ | Realtime セッションの確立 |
+| `DEVICE_KEY` | `.dev.vars` / Worker Secret | 第5段階で○ | 設定すると全 `/api/*` に Bearer 認証を要求する |
+| `REALTIME_MODEL` | `wrangler.jsonc` の vars | ○（既定値あり） | 使用するモデル。既定 `gpt-realtime-2.1` |
+
+`.dev.vars` と `.env` は `.gitignore` 済み。**APIキーを絶対にコミットしないこと。**
+
+## 開発（iPhone から使う）
+
+ターミナルを2つ使う。
+
+```bash
+npm run dev     # Vite + Worker を :5173 で起動
+npm run proxy   # HTTPS 終端を :8444 で起動
+```
+
+`npm run proxy` が表示する URL を **iPhone の Safari** で開く。
+
+```
+https://192.168.2.200:8444/
+```
+
+Mac と iPhone が同じ Wi-Fi にいること。自己署名証明書なので警告が出るので、
+「詳細を表示」→「この Web サイトを閲覧」と進む。
+
+HTTPS が要るのは、**iOS Safari が `getUserMedia` と Wake Lock を保護されたコンテキストでしか
+許可しない**ため。`http://192.168.2.200:5173` では動かない。
+
+### 使い方
+
+1. 「開始する」をタップ（マイクとカメラの権限を許可する）
+2. 話しかける。無音になると AI が答え始める
+3. 「回答開始まで」に、発話終了から音が鳴り始めるまでの実測値が出る
+
+**マイクとカメラは開始時に一度だけまとめて取得し、以後は取り直さない。**
+iOS は同時に1つのカメラしか掴めず、通話中に `getUserMedia` を呼び直すと
+既存の映像トラックが `ended` になるため（第0段階で確認済み）。
+第2段階のカメラもこのとき取得したストリームを使う。
+
+## ウェイクワード（第3段階・方式を再検討中）
+
+「ねえAI」と話しかけると会話が始まる状態を目指している。**端末に触らず操作する**のが
+このプロジェクトの核心要件で、待機中はネットワークへ音声を送らない設計にする。
+
+### 現状
+
+当初 **Picovoice Porcupine** を採用する前提で実装したが、
+**Picovoice の無料枠は 2026年6月30日で廃止された。**
+既存の無料 AccessKey も無効化され、有料プランは月額 $899 から。個人利用では採用できない。
+
+代替として **Vosk**（Kaldi の WASM 版 / Apache-2.0 / アカウント不要 / 日本語モデルあり）を検証中。
+
+```bash
+npm install
+./scripts/fetch-vosk-model.sh   # 約48MB。リポジトリには含めていない
+node spike/serve.mjs
+```
+
+iPhone で `https://<LAN IP>:8443/vosk.html` を開いて確かめる。
+
+| 見るところ | 判断 |
+|---|---|
+| モデルが iOS Safari で読み込めるか | 失敗するなら別方式へ |
+| 「ねえAI」がどう文字起こしされるか | 実際の出力を見てから検出条件を決める |
+| 処理の余裕（CPU使用率） | 50%未満なら常時稼働できる |
+| 発熱とバッテリー | 常設運用の可否に直結 |
+
+### 実装済みの土台
+
+検出器が決まり次第すぐ差し込めるところまでは出来ている。
+
+- **マイクは起動時に一度だけ取得し、以後は取り直さない**（`src/media.ts`）。
+  会話を切断してもトラックを止めない。iOS はマイクを取り直せず、
+  ウェイクワード待機には生きたトラックが要るため。
+- **自前の AudioWorklet** で既存トラックから 16kHz / 16bit フレームを作る
+  （`src/wakeword/downsampler.ts`）。検出器がマイクを自分で掴む実装は使えない。
+- 検出器は動的読み込みにしてある。初期表示を重くしない。
+- 会話中は検出を止める。AI 自身の声での誤検出を避けるため。
+
+`src/wakeword/index.ts` は Porcupine 向けに書いたまま残してある。差し替え口として使う。
+
+## デプロイ## デプロイ
+
+```bash
+npx wrangler secret put OPENAI_API_KEY
+npx wrangler secret put DEVICE_KEY     # 公開するなら必須
+npm run deploy
+```
+
+**`DEVICE_KEY` を設定せずに公開しないこと。** 誰でもあなたの課金でAIと会話できてしまう。
+設定すると `/api/*` が `Authorization: Bearer <キー>` を要求するようになる。
+クライアント側の受け渡しは第5段階で実装する。
+
+## 常設運用のメモ
+
+- 画面スリープは Wake Lock API で防いでいる。**画面が hidden になると解放されるため、
+  復帰時に取り直す処理を入れてある**（第0段階で確認済みの挙動）。
+- 給電したまま画面を点けっぱなしにするとバッテリーが劣化する。UI を黒基調にし、
+  輝度を最小にして使うこと。
+- 完全なバックグラウンド待機は iOS の制約でできない。Web アプリを前面表示したまま使う。
+
+## レイテンシの測り方
+
+「回答開始まで」は、データチャネルの `input_audio_buffer.speech_stopped` を起点に、
+受信 RTP の `totalAudioEnergy` が上がった時刻までを測っている。
+つまり **実際に音が鳴り始めるまで**の値で、目標は1秒前後。
+
+Safari では WebRTC の受信ストリームを WebAudio に繋ぐと無音になることがあるため、
+`getStats()` を使っている。

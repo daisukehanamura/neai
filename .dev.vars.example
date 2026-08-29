@@ -1,0 +1,6 @@
+# これを .dev.vars にコピーして値を入れる。.dev.vars は .gitignore 済み。
+OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxx
+
+# 第5段階で使う。設定するとすべての /api/* に Bearer 認証を要求する。
+# 開発中は空のままでよい。
+# DEVICE_KEY=

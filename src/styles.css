@@ -1,0 +1,112 @@
+/* 常設端末向け。焼き付きと消費電力を抑えるため黒基調にする。 */
+:root {
+  color-scheme: dark;
+  --bg: #050507;
+  --fg: #e8e8ea;
+  --dim: #6b6b76;
+  --line: #1e1e23;
+  --accent: #3b82f6;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+  overscroll-behavior: none;
+}
+
+.app {
+  min-height: 100dvh;
+  padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+}
+
+.orb {
+  width: 116px;
+  height: 116px;
+  border-radius: 50%;
+  background: #17171c;
+  border: 2px solid var(--line);
+  transition: background .25s, border-color .25s, transform .25s;
+}
+
+.stage h1 { margin: 0; font-size: 21px; font-weight: 600; letter-spacing: .04em; }
+.detail { margin: 0; color: var(--dim); font-size: 13px; }
+
+.phase-listening .orb { border-color: #4ade80; background: #0d2417; transform: scale(1.06); }
+.phase-thinking  .orb { border-color: #fbbf24; background: #241d0d; }
+.phase-speaking  .orb { border-color: var(--accent); background: #0d1a33; transform: scale(1.06); }
+.phase-error     .orb { border-color: #f87171; background: #2a1111; }
+.phase-error h1  { color: #f87171; }
+
+.metrics { display: flex; gap: 10px; margin: 0; }
+.metrics > div {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.metrics dt { font-size: 12px; color: var(--dim); }
+.metrics dd {
+  margin: 2px 0 0;
+  font: 600 20px/1.2 ui-monospace, Menlo, monospace;
+}
+.metrics dd.good { color: #4ade80; }
+
+.action {
+  width: 100%;
+  padding: 18px;
+  font: 600 17px/1 inherit;
+  color: #fff;
+  background: var(--accent);
+  border: 0;
+  border-radius: 14px;
+}
+.action:active { opacity: .8; }
+
+.log {
+  height: 132px;
+  overflow-y: auto;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #08080a;
+  font: 11.5px/1.5 ui-monospace, Menlo, monospace;
+  color: #9a9aa6;
+  word-break: break-all;
+}
+.log .t { color: #4a4a54; }
+.log .ok { color: #4ade80; }
+.log .ng { color: #f87171; }
+.log .warn { color: #fbbf24; }
+
+.metrics dd.warn { color: #fbbf24; }
+
+.idle {
+  margin: -8px 0 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--dim);
+}
+.idle b { color: var(--fg); font-family: ui-monospace, Menlo, monospace; }
+.idle .model { opacity: .7; }
+
+.action.secondary {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--dim);
+}

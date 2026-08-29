@@ -1,0 +1,18 @@
+node_modules/
+.dev.vars
+.env
+.env.*
+!.env.example
+.wrangler/
+dist/
+spike/dev-key.pem
+spike/dev-cert.pem
+
+dist/
+.wrangler/
+scripts/dev-key.pem
+scripts/dev-cert.pem
+
+# 検証用に取得するだけの大きなファイル。scripts/fetch-vosk-model.sh で再取得できる。
+spike/models/
+spike/vendor/

@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "neai",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-08-29",
+  "assets": {
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+  "observability": { "enabled": true },
+  "vars": {
+    // 実装時点の最新 Realtime モデル。切り替えはここ一箇所で行う。
+    "REALTIME_MODEL": "gpt-realtime-2.1"
+  }
+}

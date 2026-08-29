@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>neai ウェイクワード検証（Vosk）</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; padding:12px 12px 40px; background:#0a0a0c; color:#e8e8ea;
+         font:15px/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif; }
+  h1 { font-size:17px; margin:4px 0 6px; }
+  h2 { font-size:15px; margin:0 0 10px; }
+  section { border:1px solid #26262b; border-radius:12px; padding:14px; margin-bottom:14px; background:#111114; }
+  p.note { margin:8px 0 0; font-size:12.5px; color:#8b8b95; }
+  button { display:block; width:100%; margin:8px 0 0; padding:15px 14px; font:inherit; font-weight:600;
+           color:#fff; background:#2b2b33; border:1px solid #3a3a44; border-radius:10px; }
+  button:active { background:#3a3a46; }
+  button:disabled { opacity:.35; }
+  button.primary { background:#1d4ed8; border-color:#2563eb; }
+  .stat { display:flex; justify-content:space-between; gap:10px; padding:5px 0;
+          border-bottom:1px solid #1e1e23; font-size:13px; }
+  .stat:last-child { border-bottom:0; }
+  .stat b { font-weight:600; color:#9a9aa6; }
+  .ok{color:#4ade80} .ng{color:#f87171} .warn{color:#fbbf24}
+  .bar { height:8px; background:#1e1e23; border-radius:4px; overflow:hidden; margin-top:8px; }
+  .bar > i { display:block; height:100%; width:0%; background:#3b82f6; transition:width .2s; }
+  #partial { min-height:56px; padding:12px; border:1px solid #2563eb; border-radius:10px;
+             background:#0d1a33; font-size:19px; font-weight:600; word-break:break-all; }
+  #finals { margin:10px 0 0; padding:10px; height:150px; overflow-y:auto; background:#08080a;
+            border:1px solid #26262b; border-radius:8px; font-size:14px; word-break:break-all; }
+  #finals div { padding:3px 0; border-bottom:1px solid #16161a; }
+  #finals .hit { color:#4ade80; font-weight:600; }
+  #log { margin:0; padding:10px; height:150px; overflow-y:auto; background:#08080a;
+         border:1px solid #26262b; border-radius:8px;
+         font:11.5px/1.5 ui-monospace, Menlo, monospace; white-space:pre-wrap; word-break:break-all; color:#b8b8c2; }
+  #log .t { color:#5c5c68; }
+  input { width:100%; padding:12px; font:inherit; color:#fff; background:#08080a;
+          border:1px solid #3a3a44; border-radius:10px; margin-top:8px; }
+</style>
+</head>
+<body>
+
+<h1>neai — ウェイクワード検証（Vosk）</h1>
+<p class="note" style="margin-bottom:14px">
+Picovoice の無料枠が2026年6月末で廃止されたため、代替として Vosk を試す。
+オープンソース・アカウント不要・完全に端末内で動作する。
+<b>ここで見たいのは「iPhone XR で実用的な速度で動くか」と「『ねえAI』をどう文字起こしするか」。</b></p>
+
+<section>
+  <h2>1. モデルの読み込み</h2>
+  <div class="stat"><b>Vosk ライブラリ</b><span id="s-lib">—</span></div>
+  <div class="stat"><b>モデル (47MB)</b><span id="s-model">未読み込み</span></div>
+  <div class="bar"><i id="dlbar"></i></div>
+  <button class="primary" id="bload">モデルを読み込む</button>
+  <p class="note">初回のみ47MBのダウンロード。2回目以降はブラウザのキャッシュから読まれる。</p>
+</section>
+
+<section>
+  <h2>2. 認識</h2>
+  <div class="stat"><b>AudioContext</b><span id="s-rate">—</span></div>
+  <div class="stat"><b>処理の余裕</b><span id="s-rtf">—</span></div>
+  <div class="stat"><b>検出回数</b><span id="s-hits">0</span></div>
+  <button class="primary" id="bstart" disabled>マイクを開始</button>
+
+  <p class="note" style="margin-top:12px">認識中（話している途中）</p>
+  <div id="partial">—</div>
+
+  <p class="note" style="margin-top:12px">確定した文</p>
+  <div id="finals"></div>
+
+  <label class="note" style="display:block;margin-top:12px">
+    検出したい語（部分一致・カンマ区切り）
+    <input id="targets" value="ねえ,ねー,ネエ,えーあい,エーアイ,ai,エイアイ">
+  </label>
+  <p class="note"><b>「ねえAI」と何度か話しかけて、上に何と出るか見てください。</b>
+  Vosk が実際に返す文字列を見てから、検出条件を決めます。</p>
+</section>
+
+<section>
+  <h2>ログ</h2>
+  <pre id="log"></pre>
+  <button id="bcopy">コピー</button>
+</section>
+
+<script src="/vendor/vosk.js"></script>
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const logEl = $("log");
+
+  function log(msg, cls) {
+    const d = new Date();
+    const ts = d.toTimeString().slice(0,8) + "." + String(d.getMilliseconds()).padStart(3,"0");
+    const line = document.createElement("div");
+    line.innerHTML = '<span class="t">' + ts + "</span>  ";
+    const b = document.createElement("span");
+    if (cls) b.className = cls;
+    b.textContent = msg;
+    line.appendChild(b);
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  log("端末: " + navigator.userAgent);
+  const hasVosk = typeof Vosk !== "undefined";
+  $("s-lib").innerHTML = hasVosk
+    ? '<span class="ok">読み込み済み</span>'
+    : '<span class="ng">読み込めていない</span>';
+  log("Vosk ライブラリ: " + (hasVosk ? "あり" : "なし"), hasVosk ? "ok" : "ng");
+
+  let model = null, recognizer = null, ctx = null, stream = null;
+  let hits = 0, procTime = 0, audioTime = 0;
+
+  // ---------- モデル読み込み ----------
+  $("bload").onclick = async () => {
+    $("bload").disabled = true;
+    $("s-model").textContent = "ダウンロード中…";
+    const t0 = performance.now();
+    try {
+      // 進捗を見せるため、先に fetch して Blob URL を作る。
+      const res = await fetch("/models/vosk-ja.tar.gz");
+      const total = Number(res.headers.get("content-length") || 0);
+      const reader = res.body.getReader();
+      const chunks = [];
+      let got = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        got += value.length;
+        if (total) {
+          $("dlbar").style.width = (got / total * 100).toFixed(1) + "%";
+          $("s-model").textContent = (got / 1e6).toFixed(1) + " / " + (total / 1e6).toFixed(1) + " MB";
+        }
+      }
+      const url = URL.createObjectURL(new Blob(chunks));
+      log(`ダウンロード完了 ${(got/1e6).toFixed(1)}MB / ${Math.round(performance.now()-t0)}ms`, "ok");
+
+      $("s-model").textContent = "展開して初期化中…（時間がかかります）";
+      const t1 = performance.now();
+      model = await Vosk.createModel(url);
+      URL.revokeObjectURL(url);
+      log(`モデル初期化 ${Math.round(performance.now()-t1)}ms`, "ok");
+      $("s-model").innerHTML = '<span class="ok">準備完了</span>';
+      $("bstart").disabled = false;
+    } catch (e) {
+      $("s-model").innerHTML = '<span class="ng">失敗</span>';
+      log("モデル読み込み失敗: " + e.name + " — " + e.message, "ng");
+      $("bload").disabled = false;
+    }
+  };
+
+  // ---------- 認識開始 ----------
+  $("bstart").onclick = async () => {
+    $("bstart").disabled = true;
+    try {
+      recognizer = new model.KaldiRecognizer(16000);
+      recognizer.on("partialresult", (m) => {
+        const t = m.result.partial;
+        if (t) { $("partial").textContent = t; check(t, false); }
+      });
+      recognizer.on("result", (m) => {
+        const t = m.result.text;
+        $("partial").textContent = "—";
+        if (!t) return;
+        const hit = check(t, true);
+        const div = document.createElement("div");
+        if (hit) div.className = "hit";
+        div.textContent = (hit ? "★ " : "") + t;
+        $("finals").prepend(div);
+        log("確定: " + t, hit ? "ok" : null);
+      });
+
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+
+      // 16kHz を直接要求する。通らなければ実レートを見て判断する。
+      ctx = new AudioContext({ sampleRate: 16000 });
+      if (ctx.state === "suspended") await ctx.resume();
+      const rate = ctx.sampleRate;
+      $("s-rate").innerHTML = rate === 16000
+        ? '<span class="ok">' + rate + " Hz</span>"
+        : '<span class="warn">' + rate + " Hz（16000を要求したが通らず）</span>";
+      log("AudioContext sampleRate = " + rate, rate === 16000 ? "ok" : "warn");
+
+      const src = ctx.createMediaStreamSource(stream);
+      // ScriptProcessor は非推奨だが、AudioBuffer をそのまま渡せるので検証には都合が良い。
+      const node = ctx.createScriptProcessor(4096, 1, 1);
+      node.onaudioprocess = (e) => {
+        const t0 = performance.now();
+        try { recognizer.acceptWaveform(e.inputBuffer); }
+        catch (err) { log("acceptWaveform 失敗: " + err.message, "ng"); }
+        procTime += performance.now() - t0;
+        audioTime += (e.inputBuffer.length / rate) * 1000;
+        if (audioTime > 2000) {
+          const rtf = procTime / audioTime;
+          $("s-rtf").innerHTML = '<span class="' +
+            (rtf < 0.5 ? "ok" : rtf < 0.9 ? "warn" : "ng") + '">' +
+            (rtf * 100).toFixed(0) + "% 使用（低いほど良い）</span>";
+          procTime = audioTime = 0;
+        }
+      };
+      src.connect(node);
+      node.connect(ctx.destination);
+      log("認識開始。「ねえAI」と話しかけてください。", "ok");
+    } catch (e) {
+      log("開始失敗: " + e.name + " — " + e.message, "ng");
+      $("bstart").disabled = false;
+    }
+  };
+
+  function check(text, isFinal) {
+    const targets = $("targets").value.split(",").map((s) => s.trim()).filter(Boolean);
+    const hit = targets.some((t) => text.includes(t));
+    if (hit && isFinal) { hits++; $("s-hits").textContent = String(hits); }
+    return hit;
+  }
+
+  $("bcopy").onclick = async () => {
+    const finals = [...$("finals").children].map((d) => d.textContent).join("\n");
+    try {
+      await navigator.clipboard.writeText(logEl.innerText + "\n=== 確定した文 ===\n" + finals);
+      log("コピーした", "ok");
+    } catch (e) { log("コピー失敗: " + e.message, "warn"); }
+  };
+
+  window.addEventListener("error", (e) => log("未捕捉エラー: " + e.message, "ng"));
+})();
+</script>
+</body>
+</html>
