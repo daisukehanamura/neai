@@ -270,6 +270,7 @@ export default function App() {
       setRinging(false);
     }
 
+
     setAnswer(cmd.speech);
     setAnswerDone(true);
     setKeepLeft(settingsRef.current.keepSec);
@@ -389,6 +390,21 @@ export default function App() {
   };
 
   /**
+   * アラームを止めたあとの後始末。
+   * 用が済んだ画面を残さず、時計の画面へ戻す。
+   * 会話中なら会話は続ける（アラームを消したいだけで、話を切りたいわけではない）。
+   */
+  const dismissAlarm = (cancelId?: string) => {
+    if (cancelId) timersRef.current?.cancel(cancelId);
+    else timersRef.current?.silence();
+    setRinging(false);
+    setAnswer("");
+    setAnswerDone(false);
+    setKeepLeft(0);
+    setLastFrame(null);
+  };
+
+  /**
    * 会話だけ終える。待機は続ける。
    * 手で終えたときは読み返す必要がないので、回答も消して待機画面へ戻す。
    * （無操作での自動切断は、聞き逃したとき用に回答をしばらく残す）
@@ -436,7 +452,7 @@ export default function App() {
           ringing={ringing}
           wakeLabel={wake.label}
           tapToStart={mode === "タップ待ち"}
-          onSilence={() => { timersRef.current?.silence(); setRinging(false); }}
+          onSilence={() => dismissAlarm()}
         />
       ) : (
         <>
@@ -462,7 +478,7 @@ export default function App() {
               {ringing && (
                 <button
                   className="stop-alarm"
-                  onClick={() => { timersRef.current?.silence(); setRinging(false); }}
+                  onClick={() => dismissAlarm()}
                 >
                   アラームを止める
                 </button>
@@ -472,7 +488,7 @@ export default function App() {
                   <span className="timer-label">{t.label}</span>
                   <span className="timer-left">{remaining(t)}</span>
                   <button
-                    onClick={() => { timersRef.current?.cancel(t.id); setRinging(false); }}
+                    onClick={() => dismissAlarm(t.id)}
                     aria-label="取り消し"
                   >
                     ×
