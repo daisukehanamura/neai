@@ -45,6 +45,8 @@ export default function App() {
   const mediaRef = useRef(new MediaController("user"));
   const [facing, setFacing] = useState<Facing>("user");
   const [lastFrame, setLastFrame] = useState<Frame | null>(null);
+  const [answer, setAnswer] = useState("");
+  const [answerDone, setAnswerDone] = useState(false);
   const sessionRef = useRef<RealtimeSession | null>(null);
   const detectorRef = useRef<WakeWordDetector | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -103,6 +105,11 @@ export default function App() {
         const frame = mediaRef.current.captureFrame();
         setLastFrame(frame);
         return frame;
+      },
+      onAnswer: (text, done) => {
+        // 空文字は新しい問いかけの合図。前の回答を消す。
+        if (text) { setAnswer(text); setAnswerDone(done); }
+        else { setAnswer(""); setAnswerDone(false); setLastFrame(null); }
       },
     });
     sessionRef.current = session;
@@ -173,14 +180,26 @@ export default function App() {
 
   return (
     <main className={`app phase-${talking ? phase : "idle"}`}>
-      <div className="stage">
+      <header className="bar">
         <div className="orb" aria-hidden="true" />
-        <h1>{statusText}</h1>
-        {mode === "ウェイクワード待機" && (
-          <p className="detail">「{wakeConfig?.label}」と話しかけてください（通信していません）</p>
+        <div>
+          <div className="status">{statusText}</div>
+          {mode === "ウェイクワード待機" && (
+            <div className="detail">「{wakeConfig?.label}」と話しかけてください（通信していません）</div>
+          )}
+          {talking && detail && <div className="detail">{detail}</div>}
+        </div>
+      </header>
+
+      <section className="answer" aria-live="polite">
+        {answer ? (
+          <p className={answerDone ? "" : "streaming"}>{answer}</p>
+        ) : (
+          <p className="empty">
+            {talking ? "話しかけてください" : "回答はここに表示されます"}
+          </p>
         )}
-        {talking && detail && <p className="detail">{detail}</p>}
-      </div>
+      </section>
 
       <dl className="metrics">
         <div>
@@ -196,6 +215,15 @@ export default function App() {
           </dd>
         </div>
       </dl>
+
+      {(metrics.usage.audioOut > 0 || metrics.usage.textOut > 0) && (
+        <p className="tokens">
+          音声 入{metrics.usage.audioIn} / 出{metrics.usage.audioOut}
+          {" ・ "}テキスト 入{metrics.usage.textIn} / 出{metrics.usage.textOut}
+          {metrics.usage.imageIn > 0 && ` ・ 画像 ${metrics.usage.imageIn}`}
+          {metrics.usage.audioInCached > 0 && ` ・ キャッシュ ${metrics.usage.audioInCached}`}
+        </p>
+      )}
 
       {talking && (
         <p className="idle">

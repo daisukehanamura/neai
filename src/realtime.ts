@@ -39,6 +39,12 @@ export interface Callbacks {
   onLog: (message: string, kind?: "ok" | "ng" | "warn") => void;
   /** AI が look_at_camera を呼んだときに1枚撮る。 */
   onCapture: () => Frame | null;
+  /**
+   * AI が話している内容のテキスト。音声と同時にストリーミングで届く。
+   * @param text  ここまでの全文
+   * @param done  読み上げが終わったか
+   */
+  onAnswer: (text: string, done: boolean) => void;
 }
 
 export class RealtimeSession {
@@ -57,6 +63,8 @@ export class RealtimeSession {
 
   /** 発話終了の時刻。ここから最初の音が出るまでを測る。 */
   private spokeAt = 0;
+  /** AI の発話テキスト。利用者の次の発話開始で区切る。 */
+  private answer = "";
   private energyBaseline = 0;
   private pollTimer: number | null = null;
 
@@ -210,6 +218,9 @@ export class RealtimeSession {
     switch (event.type) {
       case "input_audio_buffer.speech_started":
         this.touch();
+        // 新しい問いかけが始まった。前の回答の表示はここで区切る。
+        this.answer = "";
+        this.cb.onAnswer("", false);
         this.cb.onPhase("listening");
         break;
 
@@ -229,6 +240,23 @@ export class RealtimeSession {
         this.cb.onPhase("ready");
         break;
       }
+
+      // 読み上げ中のテキストが少しずつ届く。音声と同時に流れてくるので待ち時間はない。
+      // カメラを使う流れでは応答が2回に分かれるため、追記していく。
+      case "response.output_audio_transcript.delta":
+      case "response.audio_transcript.delta": {
+        const delta = (event as unknown as { delta?: string }).delta ?? "";
+        if (delta) {
+          this.answer += delta;
+          this.cb.onAnswer(this.answer, false);
+        }
+        break;
+      }
+
+      case "response.output_audio_transcript.done":
+      case "response.audio_transcript.done":
+        this.cb.onAnswer(this.answer, true);
+        break;
 
       // AI がツールを呼んだ。引数が出揃った時点で実行する。
       case "response.function_call_arguments.done": {
