@@ -430,6 +430,23 @@ export default function App() {
   };
 
   /**
+   * 時計の画面へ戻す。
+   * 会話中なら会話も終える。「ホーム」と言われたら全部畳んで戻るのが素直。
+   */
+  const goHome = () => {
+    if (sessionRef.current) {
+      sessionRef.current.stop();
+      sessionRef.current = null;
+    }
+    setAnswer("");
+    setAnswerDone(false);
+    setKeepLeft(0);
+    setLastFrame(null);
+    setBusy(null);
+    setShowLog(false);
+  };
+
+  /**
    * アラームを止めたあとの後始末。
    * 用が済んだ画面を残さず、時計の画面へ戻す。
    * 会話中なら会話は続ける（アラームを消したいだけで、話を切りたいわけではない）。
@@ -479,6 +496,10 @@ export default function App() {
           <div className="status">{statusText}</div>
           {talking && detail && <div className="detail">{detail}</div>}
         </div>
+        {/* 時計の画面に居ないときだけ出す。居るときは押す意味がない。 */}
+        {!ambient && mode !== "停止中" && (
+          <button className="gear home" onClick={goHome}>ホーム</button>
+        )}
         <button className="gear" onClick={() => setShowLog((v) => !v)}>
           {showLog ? "ログ×" : "ログ"}
         </button>
@@ -496,7 +517,12 @@ export default function App() {
         />
       ) : (
         <>
-          <section className="answer" ref={answerRef} aria-live="polite">
+          <section
+            className={`answer ${answerDone && answer ? "tappable" : ""}`}
+            ref={answerRef}
+            aria-live="polite"
+            onClick={answerDone && answer ? goHome : undefined}
+          >
             {busy ? (
               <div className="busy">
                 <span className="busy-dots" aria-hidden="true">
