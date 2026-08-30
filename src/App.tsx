@@ -80,6 +80,9 @@ export default function App() {
   const prevCostRef = useRef(0);
   const [answer, setAnswer] = useState("");
   const [answerDone, setAnswerDone] = useState(false);
+  /** 待たせている間に出す文言と、待ち始めた時刻。 */
+  const [busy, setBusy] = useState<{ label: string; since: number } | null>(null);
+  const [busySec, setBusySec] = useState(0);
   const [keepLeft, setKeepLeft] = useState(0);
   const answerRef = useRef<HTMLDivElement>(null);
   const sessionRef = useRef<RealtimeSession | null>(null);
@@ -134,6 +137,16 @@ export default function App() {
       onPhase: (p, d) => {
         setPhase(p);
         setDetail(d ?? "");
+        // 待たせている間は、何をしているかを主役の領域に出す。
+        // 検索は7〜8秒かかるので、無言のままだと固まったように見える。
+        if (p === "thinking" || p === "connecting") {
+          setBusy((prev) =>
+            // 新しい文言が来たら差し替え、無ければ今の表示を保つ。
+            d ? { label: d, since: Date.now() } : prev ?? { label: "考えています", since: Date.now() },
+          );
+        } else {
+          setBusy(null);
+        }
         if (p === "idle") {
           // 自動切断された。ウェイクワード待機へ戻す。
           sessionRef.current = null;
@@ -171,6 +184,8 @@ export default function App() {
           onSpend: (usd) => setSpend(addSpend(usd)),
         }),
       onAnswer: (text, done) => {
+        // 読み上げが始まったら待ちの表示は用済み。
+        if (text) setBusy(null);
         // 空文字は新しい問いかけの合図。前の回答を消す。
         if (text) {
           setAnswer(text);
@@ -371,6 +386,15 @@ export default function App() {
     return () => clearInterval(id);
   }, [timers.length]);
 
+  // 待っている間は秒数を出す。数字が動いていれば止まっていないと分かる。
+  useEffect(() => {
+    if (!busy) { setBusySec(0); return; }
+    const tick = () => setBusySec(Math.floor((Date.now() - busy.since) / 1000));
+    tick();
+    const id = setInterval(tick, 500);
+    return () => clearInterval(id);
+  }, [busy]);
+
   // 読み上げ中は末尾を追いかける。長い回答でも今読まれている所が見える。
   useEffect(() => {
     if (!answerDone && answerRef.current) {
@@ -473,7 +497,15 @@ export default function App() {
       ) : (
         <>
           <section className="answer" ref={answerRef} aria-live="polite">
-            {answer ? (
+            {busy ? (
+              <div className="busy">
+                <span className="busy-dots" aria-hidden="true">
+                  <i /><i /><i />
+                </span>
+                <span className="busy-label">{busy.label}</span>
+                {busySec >= 2 && <span className="busy-sec">{busySec}秒</span>}
+              </div>
+            ) : answer ? (
               <>
                 <p className={answerDone ? "" : "streaming"}>{answer}</p>
                 {answerDone && keepLeft > 0 && (
