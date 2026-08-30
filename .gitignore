@@ -16,4 +16,5 @@ scripts/dev-cert.pem
 # 検証用に取得するだけの大きなファイル。scripts/fetch-vosk-model.sh で再取得できる。
 spike/models/
 spike/vendor/
-public/wakeword/vosk-ja.tar.gz
+public/wakeword/vosk-ja.tar.gz.part*
+public/wakeword/manifest.json
