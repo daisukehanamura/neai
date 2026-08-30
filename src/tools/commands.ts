@@ -14,7 +14,8 @@
 /** 認識結果に出てくる数の表記。文法に入れた語だけを対象にする。 */
 const NUMBERS: Record<string, number> = {
   一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10,
-  十五: 15, 二十: 20, 三十: 30, 四十: 40, 五十: 50,
+  十五: 15, 二十: 20, 二十五: 25, 三十: 30, 三十五: 35, 四十: 40,
+  四十五: 45, 五十: 50,
   // 「三分」のように一語で出てくる場合もある
   一分: 1, 二分: 2, 三分: 3, 四分: 4, 五分: 5, 六分: 6, 七分: 7,
   八分: 8, 九分: 9, 十分: 10,
@@ -22,15 +23,27 @@ const NUMBERS: Record<string, number> = {
 
 const NUMBER_WORDS = Object.keys(NUMBERS).sort((a, b) => b.length - a.length);
 
-/** Vosk が出す文法。語彙表に存在する語だけで構成すること。 */
+/**
+ * Vosk に渡す認識対象。
+ * **語彙表に存在する語しか書けない**（2026-08-30 に確認済みの語だけを使っている）。
+ * 言える組み合わせをここに列挙した分だけが端末内で処理できる。
+ */
 export function commandGrammar(): string[] {
-  const nums = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十五", "二十", "三十"];
+  const minutes = [
+    "一", "二", "三", "四", "五", "六", "七", "八", "九", "十",
+    "十五", "二十", "二十五", "三十", "三十五", "四十", "四十五", "五十",
+  ];
+  const seconds = ["十", "十五", "二十", "三十", "四十", "四十五", "五十"];
+  const hours = ["一", "二", "三"];
+
   const phrases: string[] = [];
-  for (const n of nums) {
+  for (const n of minutes) {
     phrases.push(`タイマー ${n} 分`);
     phrases.push(`${n} 分 タイマー`);
   }
-  phrases.push("タイマー 三十 秒", "タイマー 一 時間");
+  for (const n of seconds) phrases.push(`タイマー ${n} 秒`);
+  for (const n of hours) phrases.push(`タイマー ${n} 時間`);
+
   phrases.push("タイマー 止めて", "タイマー 消して", "アラーム 止めて");
   phrases.push("止めて", "今 何時", "あと 何分");
   return phrases;
