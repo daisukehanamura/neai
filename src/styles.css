@@ -580,3 +580,10 @@ body {
   0%, 60%, 100% { opacity: .25; transform: translateY(0); }
   30%           { opacity: 1;   transform: translateY(-6px); }
 }
+
+/* ホームへ戻るボタン。時計の画面に居ないときだけ出す。 */
+.gear.home { color: var(--fg); border-color: #3a3a44; }
+
+/* 読み終えた回答は触れば閉じられる。押せることが分かるようにしておく。 */
+.answer.tappable { cursor: pointer; }
+.answer.tappable:active { background: #101016; }
