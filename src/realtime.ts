@@ -32,6 +32,14 @@ function labelOf(name: string): string {
   }
 }
 
+/**
+ * 受信音のエネルギーがこの回数だけ増えなければ、鳴り終わったとみなす。
+ * 40ms ごとに見ているので約0.6秒。
+ * response.done は「作り終えた」であって「鳴り終えた」ではないため、
+ * これを待たずにマイクを戻すと読み上げの終わり際を自分で拾う。
+ */
+const PLAYBACK_END_POLLS = 15;
+
 export interface SessionOptions {
   idleSec: number;
   model: string;
@@ -96,6 +104,14 @@ export class RealtimeSession {
   private toolRunning = false;
   /** 読み上げ中かどうか。マイクの開け閉めを二重にしないために持つ。 */
   private speaking = false;
+  /**
+   * 生成は終わったが、まだ音が鳴っている状態。
+   * response.done は「作り終えた」であって「鳴り終えた」ではないため、
+   * ここで待たないと、読み上げの終わり際を自分で拾ってしまう。
+   */
+  private awaitingPlaybackEnd = false;
+  private lastEnergy = 0;
+  private quietPolls = 0;
   private energyBaseline = 0;
   private pollTimer: number | null = null;
 
@@ -202,7 +218,9 @@ export class RealtimeSession {
    */
   private startEnergyPolling(): void {
     this.pollTimer = window.setInterval(async () => {
-      if (!this.pc || !this.spokeAt) return;
+      if (!this.pc) return;
+      if (!this.spokeAt && !this.awaitingPlaybackEnd) return;
+
       const stats = await this.pc.getStats();
       let energy = 0;
       stats.forEach((report) => {
@@ -210,12 +228,22 @@ export class RealtimeSession {
           energy = (report as { totalAudioEnergy?: number }).totalAudioEnergy ?? 0;
         }
       });
-      if (energy - this.energyBaseline > 1e-5) {
+
+      // 発話終了から最初の音が鳴るまでを測る。要件の最重要指標。
+      if (this.spokeAt && energy - this.energyBaseline > 1e-5) {
         this.metrics.replyMs = Math.round(performance.now() - this.spokeAt);
         this.spokeAt = 0;
         this.cb.onMetrics({ ...this.metrics });
         this.cb.onLog(`回答音声の開始まで ${this.metrics.replyMs}ms`, "ok");
         this.cb.onPhase("speaking");
+      }
+
+      // 音が増えなくなったら鳴り終わったとみなす。
+      if (this.awaitingPlaybackEnd) {
+        if (energy > this.lastEnergy + 1e-9) this.quietPolls = 0;
+        else this.quietPolls++;
+        this.lastEnergy = energy;
+        if (this.quietPolls >= PLAYBACK_END_POLLS) this.finishSpeaking();
       }
     }, 40);
   }
@@ -392,7 +420,7 @@ export class RealtimeSession {
   interrupt(): void {
     if (this.dc?.readyState !== "open") return;
     this.toolRunning = false;
-    this.endSpeaking();
+    this.finishSpeaking();
     this.setMicEnabled(true);
     this.send({ type: "response.cancel" });
     this.send({ type: "output_audio_buffer.clear" });
@@ -402,8 +430,20 @@ export class RealtimeSession {
     this.cb.onPhase("ready");
   }
 
-  /** 読み上げの終わり。マイクを戻し、中断の受付も閉じる。 */
+
+  /**
+   * 生成が終わった。ただしまだ鳴っているので、マイクはまだ戻さない。
+   * 鳴り終わったかは受信音のエネルギーが増えなくなったかで見る。
+   */
   private endSpeaking(): void {
+    if (!this.speaking) return;
+    this.awaitingPlaybackEnd = true;
+    this.quietPolls = 0;
+  }
+
+  /** 本当に鳴り終わった。ここで初めてマイクを戻す。 */
+  private finishSpeaking(): void {
+    this.awaitingPlaybackEnd = false;
     if (!this.speaking) return;
     this.speaking = false;
     this.cb.onSpeaking(false);

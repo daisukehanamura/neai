@@ -212,7 +212,13 @@ export function sessionConfig(env: Env, model = env.REALTIME_MODEL) {
       // WebRTC では音声コーデックを WebRTC 側が決めるため format は指定しない。
       input: {
         // semantic_vad は発話の意味的な切れ目で応答を開始する。低レイテンシ重視。
-        turn_detection: { type: "semantic_vad" },
+        turn_detection: {
+          type: "semantic_vad",
+          // 読み上げ中に音を拾っても応答を中断させない。
+          // 物音や自分の声で回答が作り直されるのを防ぐ。
+          // 意図的な中断は端末側が「ストップ」を聞いて response.cancel を送る。
+          interrupt_response: false,
+        },
       },
       output: { voice: "marin" },
     },
