@@ -51,18 +51,26 @@ export interface CommandContext {
   timers: { label: string; left: string }[];
 }
 
-/** 認識結果からコマンドを取り出す。該当しなければ null。 */
+/**
+ * 認識結果からコマンドを取り出す。該当しなければ null。
+ *
+ * 判定はすべて前後一致にしてある。部分一致だと、普通の会話の中の
+ * 「十分です」「三時間かかる」「止めて」を拾って誤動作するため。
+ * 迷ったら何もしない側に倒し、曖昧なものは AI に任せる。
+ */
 export function matchCommand(text: string, ctx: CommandContext): MatchedCommand | null {
   const t = text.replace(/\s+/g, "");
 
   // アラームを止める。裸の「止めて」は鳴っているときだけ。
   // 会話の中の「止めて」で誤ってタイマーを消さないための歯止め。
-  if (/(タイマー|アラーム)(止めて|消して)/.test(t) || (ctx.ringing && /止めて/.test(t))) {
+  if (/^(タイマー|アラーム)(止めて|消して)$/.test(t) || (ctx.ringing && /^止めて$/.test(t))) {
     return { tool: "cancel_timer", args: {}, speech: ctx.ringing ? "止めました" : "タイマーを取り消しました" };
   }
 
-  // タイマーの設定
-  if (/タイマー/.test(t) || /(分|秒|時間)/.test(t)) {
+  // タイマーの設定。「タイマー」という語を必ず要求する。
+  // 数と単位だけで判定すると「十分です」「三時間かかる」のような
+  // 普通の会話で誤ってタイマーが入る。
+  if (/^タイマー[一二三四五六七八九十]+(分|秒|時間)$|^[一二三四五六七八九十]+分タイマー$/.test(t)) {
     const seconds = parseDuration(t);
     if (seconds) {
       return {
@@ -73,8 +81,8 @@ export function matchCommand(text: string, ctx: CommandContext): MatchedCommand 
     }
   }
 
-  // 残り時間
-  if (/あと何分|タイマーどう|残り/.test(t)) {
+  // 残り時間。前後に余計な語が付いた発話は拾わない。
+  if (/^あと何分$|^タイマー(あと何分|残り)$/.test(t)) {
     if (!ctx.timers.length) {
       return { tool: "noop", args: {}, speech: "動いているタイマーはありません" };
     }
@@ -83,7 +91,7 @@ export function matchCommand(text: string, ctx: CommandContext): MatchedCommand 
   }
 
   // 時刻
-  if (/今何時|何時ですか/.test(t)) {
+  if (/^今何時$/.test(t)) {
     const now = new Date();
     return {
       tool: "noop",
