@@ -66,7 +66,7 @@ HTTPS が要るのは、**iOS Safari が `getUserMedia` と Wake Lock を
 | `OPENAI_API_KEY` | `.dev.vars` / Worker Secret | ○ | Realtime セッションの確立 |
 | `DEVICE_KEY` | `.dev.vars` / Worker Secret | 公開時は○ | 全 `/api/*` に Bearer 認証を要求する |
 | `REALTIME_MODEL` | `wrangler.jsonc` | ○（既定あり） | 使用するモデル |
-| `HOME_LAT` / `HOME_LON` / `HOME_NAME` | `wrangler.jsonc` | — | 天気の既定地点。端末の設定が優先 |
+| `HOME_LAT` / `HOME_LON` / `HOME_NAME` | `wrangler.jsonc` | — | 天気の既定地点（現在は市川市）。端末の設定が優先 |
 | `VITE_WAKEWORD_MODEL` | `.env` | — | Vosk モデルの場所 |
 
 `.dev.vars` と `.env` は `.gitignore` 済み。**APIキーを絶対にコミットしないこと。**

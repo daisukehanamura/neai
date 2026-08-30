@@ -65,6 +65,8 @@ const INSTRUCTIONS = `# 役割と目的
 # 時刻・天気・タイマー
 - 現在時刻を聞かれたら get_current_time を呼んでください。あなたは時刻を知りません。
 - 天気を聞かれたら get_weather を呼んでください。あなたは天気を知りません。
+- 週間予報を渡されたときは、全部読み上げず、傘が要る日や気温が大きく変わる日など
+  要点だけを2文以内で伝えてください。
 - 「三分測って」のように言われたら set_timer を呼んでください。秒に直して渡します。
 - 「あと何分」と聞かれたら list_timers を呼んでください。
 - タイマーが鳴っていて「止めて」と言われたら cancel_timer を呼んでください。
@@ -124,8 +126,9 @@ const TOOLS = [
       properties: {
         day: {
           type: "string",
-          enum: ["today", "tomorrow"],
-          description: "今日なら today、明日なら tomorrow。省略時は today。",
+          enum: ["today", "tomorrow", "week"],
+          description:
+            "今日なら today、明日なら tomorrow、「今週」「これから一週間」なら week。省略時は today。",
         },
       },
       required: [],

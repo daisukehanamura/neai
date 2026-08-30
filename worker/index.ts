@@ -109,19 +109,19 @@ export default {
       // 外部APIを叩くツールはここで実行する。クライアントには鍵も宛先も持たせない。
       if (url.pathname === "/api/tools/weather") {
         const q = url.searchParams;
-        const home = {
-          latitude: Number(env.HOME_LAT ?? 35.681),
-          longitude: Number(env.HOME_LON ?? 139.767),
-          name: env.HOME_NAME ?? "東京",
+        const place = {
+          latitude: Number(env.HOME_LAT ?? 35.73413),
+          longitude: Number(env.HOME_LON ?? 139.9065),
+          name: env.HOME_NAME ?? "市川市",
         };
         // 端末側で現在地を設定していれば、そちらを優先する。
         if (q.get("lat") && q.get("lon")) {
-          home.latitude = Number(q.get("lat"));
-          home.longitude = Number(q.get("lon"));
-          home.name = q.get("name") || "現在地";
+          place.latitude = Number(q.get("lat"));
+          place.longitude = Number(q.get("lon"));
+          place.name = q.get("name") || "現在地";
         }
         try {
-          return json(await getWeather({ day: q.get("day") ?? "today" }, home));
+          return json(await getWeather(place));
         } catch (err) {
           return json({ error: `天気の取得に失敗しました: ${(err as Error).message}` });
         }
