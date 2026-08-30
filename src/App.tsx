@@ -153,6 +153,7 @@ export default function App() {
           timers: timersRef.current!,
           location: settingsRef.current.location,
           log,
+          speakWhileWaiting: (t) => speak(t),
         }),
       onAnswer: (text, done) => {
         // 空文字は新しい問いかけの合図。前の回答を消す。

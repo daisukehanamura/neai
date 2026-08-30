@@ -1,5 +1,6 @@
 import { sessionConfig, type Env } from "./config";
 import { getWeather } from "./tools/weather";
+import { searchWeb } from "./tools/search";
 
 /** 端末から指定できるモデル。ここに無い値は無視して既定に落とす。 */
 const ALLOWED_MODELS = ["gpt-realtime-2.1", "gpt-realtime-2.1-mini"];
@@ -159,6 +160,17 @@ export default {
           return json(await getWeather(place));
         } catch (err) {
           return json({ error: `天気の取得に失敗しました: ${(err as Error).message}` });
+        }
+      }
+
+      if (url.pathname === "/api/tools/search") {
+        const q = url.searchParams.get("q") ?? "";
+        if (!q.trim()) return json({ error: "検索する内容がありません" }, 400);
+        if (!env.OPENAI_API_KEY) return json({ error: "OPENAI_API_KEY が未設定です" }, 500);
+        try {
+          return json(await searchWeb(q, env.OPENAI_API_KEY));
+        } catch (err) {
+          return json({ error: `検索に失敗しました: ${(err as Error).message}` });
         }
       }
 
