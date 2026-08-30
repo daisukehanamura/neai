@@ -46,7 +46,21 @@ export function commandGrammar(): string[] {
 
   phrases.push("タイマー 止めて", "タイマー 消して", "アラーム 止めて");
   phrases.push("止めて", "今 何時", "あと 何分");
+  phrases.push(...STOP_PHRASES);
   return phrases;
+}
+
+/**
+ * AI の読み上げを止める合図。
+ * 読み上げ中は WebRTC のマイクを止めるが、Vosk だけは端末内で聞き続け、
+ * これらを聞いたら中断する。声で止められないと、長い回答を待つしかなくなる。
+ */
+export const STOP_PHRASES = ["ストップ", "やめて", "止めて", "ちょっと 待って"];
+
+/** 読み上げ中の発話が中断の合図かどうか。 */
+export function isStopCommand(text: string): boolean {
+  const t = text.replace(/\s+/g, "");
+  return /^(ストップ|やめて|止めて|ちょっと待って)$/.test(t);
 }
 
 export interface MatchedCommand {

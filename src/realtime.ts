@@ -63,6 +63,11 @@ export interface Callbacks {
    * @param done  読み上げが終わったか
    */
   onAnswer: (text: string, done: boolean) => void;
+  /**
+   * AI が読み上げている間だけ true。
+   * この間 WebRTC のマイクは止めているので、端末内の認識で中断を受け付ける。
+   */
+  onSpeaking: (active: boolean) => void;
 }
 
 export class RealtimeSession {
@@ -89,6 +94,8 @@ export class RealtimeSession {
    * 利用者の発話として拾ってしまい、待ちの表示が消えるため。
    */
   private toolRunning = false;
+  /** 読み上げ中かどうか。マイクの開け閉めを二重にしないために持つ。 */
+  private speaking = false;
   private energyBaseline = 0;
   private pollTimer: number | null = null;
 
@@ -267,6 +274,7 @@ export class RealtimeSession {
 
       case "response.done": {
         this.touch();
+        this.endSpeaking();
         const usage = (event.response as { usage?: unknown } | undefined)?.usage;
         this.metrics.usage = addUsage(this.metrics.usage, usage);
         this.metrics.costUsd = costUsd(this.metrics.usage, this.metrics.model);
@@ -280,10 +288,16 @@ export class RealtimeSession {
       case "response.output_audio_transcript.delta":
       case "response.audio_transcript.delta": {
         const delta = (event as unknown as { delta?: string }).delta ?? "";
-        if (delta) {
-          this.answer += delta;
-          this.cb.onAnswer(this.answer, false);
+        if (!delta) break;
+        // 読み上げが始まった。ここからはマイクを止める。
+        // 自分の声や物音で応答が中断され、作り直しになるのを防ぐ。
+        if (!this.speaking) {
+          this.speaking = true;
+          this.setMicEnabled(false);
+          this.cb.onSpeaking(true);
         }
+        this.answer += delta;
+        this.cb.onAnswer(this.answer, false);
         break;
       }
 
@@ -378,6 +392,7 @@ export class RealtimeSession {
   interrupt(): void {
     if (this.dc?.readyState !== "open") return;
     this.toolRunning = false;
+    this.endSpeaking();
     this.setMicEnabled(true);
     this.send({ type: "response.cancel" });
     this.send({ type: "output_audio_buffer.clear" });
@@ -385,6 +400,18 @@ export class RealtimeSession {
     this.touch();
     this.cb.onLog("発話を止めました", "warn");
     this.cb.onPhase("ready");
+  }
+
+  /** 読み上げの終わり。マイクを戻し、中断の受付も閉じる。 */
+  private endSpeaking(): void {
+    if (!this.speaking) return;
+    this.speaking = false;
+    this.cb.onSpeaking(false);
+    if (!this.toolRunning) {
+      // 読み上げ中に溜まった音は捨ててから聞き直す。
+      this.send({ type: "input_audio_buffer.clear" });
+      this.setMicEnabled(true);
+    }
   }
 
   /** マイクの送信を止める/戻す。トラック自体は生かしたままにする。 */
@@ -405,6 +432,7 @@ export class RealtimeSession {
     if (this.pollTimer !== null) window.clearInterval(this.pollTimer);
     if (this.idleTimer !== null) window.clearInterval(this.idleTimer);
     this.pollTimer = this.idleTimer = null;
+    this.speaking = false;
     this.setMicEnabled(true);
     this.dc?.close();
     this.pc?.close();
