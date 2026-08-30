@@ -164,7 +164,8 @@ body {
 }
 
 .row { display: flex; gap: 8px; }
-.row > .action { flex: 1; }
+/* .action が付いていないボタンも横並びで潰れないようにする。 */
+.row > button { flex: 1; width: auto; }
 
 .shot {
   border: 1px solid var(--line);
@@ -496,3 +497,28 @@ body {
   font: 600 10px/12px ui-monospace, Menlo, monospace;
   color: var(--accent);
 }
+
+/* 設定画面のテキスト入力。素のままだと暗い背景で見えない。 */
+.sheet input[type="text"],
+.sheet input[type="password"] {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 14px;
+  font: 15px/1.4 ui-monospace, Menlo, monospace;
+  color: var(--fg);
+  background: #08080a;
+  border: 1px solid #3a3a44;
+  border-radius: 10px;
+  -webkit-appearance: none;
+}
+.sheet input[type="text"]:focus,
+.sheet input[type="password"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.sheet input::placeholder { color: #55555f; }
+
+/* 発話を止めるボタン。押す場面が緊急寄りなので色を分ける。 */
+.action.danger { background: #b91c1c; border-color: #dc2626; }
+.action.danger:disabled { background: #2b2b33; border-color: #3a3a44; }

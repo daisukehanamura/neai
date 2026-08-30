@@ -214,15 +214,22 @@ export default function Settings({ value, onChange, onClose, onRestartNeeded }: 
           <div className="place">
             <span>{keyLabel}</span>
           </div>
+          {/* iOS のパスワード自動入力に邪魔されないよう text にする。
+              自分の端末に自分の鍵を入れるだけなので伏せる必要もない。 */}
           <input
-            type="password"
-            placeholder="手で入れる場合はここに貼り付け"
+            type="text"
+            inputMode="text"
+            placeholder="鍵を貼り付けるか入力"
             value={keyInput}
             onChange={(e) => setKeyInput(e.target.value)}
             autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
           />
           <div className="row">
             <button
+              className="action"
               onClick={() => {
                 setDeviceKey(keyInput.trim());
                 setKeyLabel(maskedKey());
@@ -233,7 +240,7 @@ export default function Settings({ value, onChange, onClose, onRestartNeeded }: 
               保存
             </button>
             <button
-              className="reset"
+              className="action secondary"
               onClick={() => { setDeviceKey(""); setKeyLabel(maskedKey()); }}
             >
               消す
