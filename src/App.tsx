@@ -385,6 +385,20 @@ export default function App() {
     saveSettings(next);
   };
 
+  /**
+   * 会話だけ終える。待機は続ける。
+   * 手で終えたときは読み返す必要がないので、回答も消して待機画面へ戻す。
+   * （無操作での自動切断は、聞き逃したとき用に回答をしばらく残す）
+   */
+  const endConversation = () => {
+    sessionRef.current?.stop();
+    sessionRef.current = null;
+    setAnswer("");
+    setAnswerDone(false);
+    setKeepLeft(0);
+    setLastFrame(null);
+  };
+
   const restartStandby = async () => {
     setShowSettings(false);
     await shutdown();
@@ -492,6 +506,23 @@ export default function App() {
       )}
       {mode === "タップ待ち" && !talking && (
         <button className="action" onClick={() => void openConversation()}>話しかける</button>
+      )}
+
+      {/* 会話中はいつでも手で止められるようにする。
+          待つしかない状態にしないため、ログの表示に関係なく常に出す。 */}
+      {talking && (
+        <div className="row">
+          <button
+            className="action danger"
+            onClick={() => sessionRef.current?.interrupt()}
+            disabled={phase !== "speaking" && phase !== "thinking"}
+          >
+            発話を止める
+          </button>
+          <button className="action secondary" onClick={endConversation}>
+            会話を終える
+          </button>
+        </div>
       )}
 
       {showLog && (

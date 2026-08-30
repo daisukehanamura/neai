@@ -347,6 +347,23 @@ export class RealtimeSession {
     this.send({ type: "response.create" });
   }
 
+  /**
+   * 話している AI を途中で止める。
+   *
+   * response.cancel だけだと、すでに送られて再生待ちになっている音が
+   * 鳴り切ってしまう。WebRTC では output_audio_buffer.clear で
+   * 未再生ぶんも捨てられるので、両方送る。
+   */
+  interrupt(): void {
+    if (this.dc?.readyState !== "open") return;
+    this.send({ type: "response.cancel" });
+    this.send({ type: "output_audio_buffer.clear" });
+    this.send({ type: "input_audio_buffer.clear" });
+    this.touch();
+    this.cb.onLog("発話を止めました", "warn");
+    this.cb.onPhase("ready");
+  }
+
   private send(event: unknown): void {
     if (this.dc?.readyState !== "open") {
       this.cb.onLog("データチャネルが開いていない", "ng");
