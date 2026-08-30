@@ -27,6 +27,7 @@ function labelOf(name: string): string {
     case "set_timer": return "タイマーを設定しています";
     case "list_timers": return "タイマーを確認しています";
     case "cancel_timer": return "タイマーを止めています";
+    case "search_web": return "ウェブを調べています";
     default: return "調べています";
   }
 }

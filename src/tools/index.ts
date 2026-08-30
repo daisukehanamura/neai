@@ -26,6 +26,8 @@ export interface ToolContext {
   /** 端末で設定した現在地。無ければ Worker の既定地点が使われる。 */
   location: { lat?: number; lon?: number; name?: string };
   log: (message: string, kind?: "ok" | "ng" | "warn") => void;
+  /** 時間のかかる処理の間、端末の音声で場をつなぐ。 */
+  speakWhileWaiting?: (text: string) => void;
 }
 
 export async function runTool(
@@ -89,6 +91,17 @@ export async function runTool(
           予報: w.予報[index],
         },
       };
+    }
+
+    case "search_web": {
+      const query = String(args.query ?? "").trim();
+      if (!query) return { output: { error: "検索する内容がありません" } };
+      ctx.log(`検索中「${query}」`, "warn");
+      // 数秒かかるので、待っている間を端末の音声で埋める。
+      ctx.speakWhileWaiting?.("調べています");
+      const res = await apiFetch(`/api/tools/search?q=${encodeURIComponent(query)}`);
+      if (!res.ok) return { output: { error: `検索に失敗しました (${res.status})` } };
+      return { output: await res.json() };
     }
 
     case "set_timer": {

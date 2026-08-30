@@ -33,7 +33,8 @@ neai/
 │  ├ index.ts           ルーティング・認証・SDP中継・ツールの実行
 │  ├ config.ts          instructions とツール定義、セッション設定
 │  └ tools/
-│     └ weather.ts      Open-Meteo
+│     ├ weather.ts      Open-Meteo
+│     └ search.ts       ウェブ検索（Responses API の web_search）
 │
 ├ public/wakeword/      Vosk の日本語モデル（48MB / Git には入れない）
 ├ scripts/
@@ -115,8 +116,20 @@ AI から呼ばれた機能の振り分け。**機能を追加するときはこ
 | `get_current_time` | 端末内 |
 | `set_timer` / `list_timers` / `cancel_timer` | 端末内（`tools/timer.ts`） |
 | `get_weather` | Worker（`/api/tools/weather`） |
+| `search_web` | Worker（`/api/tools/search`） |
 
 戻り値の `imageDataUrl` に値があると、`realtime.ts` が画像を会話に差し込む。
+
+### `worker/tools/search.ts`
+ウェブ検索。**Realtime のモデルには知識のカットオフがあり、ウェブを見る手段がない。**
+Realtime API に組み込みの web_search は使えないため、Worker から Responses API を
+呼んで結果の要約だけを返す。同じ APIキーで済み、追加の登録は要らない。
+
+読み上げるので、出典URLや箇条書きは指示と後処理の両方で取り除いている。
+指示だけでは引用が混ざることがあるため。
+
+**1回あたり約1.7円**（検索 $0.01 ＋ トークン代）。会話1往復と同程度。
+**応答に7〜8秒かかる**ので、待っている間は端末の音声で「調べています」と言って場をつなぐ。
 
 ### `tools/timer.ts` — `TimerStore`
 タイマー。**LLM もネットワークも通らない。**
