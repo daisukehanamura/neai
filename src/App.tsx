@@ -13,6 +13,11 @@ import { TimerStore, remaining, type Timer } from "./tools/timer";
 import { commandGrammar, matchCommand, speak } from "./tools/commands";
 import Ambient, { type Weather } from "./Ambient";
 
+/** 天気を取り直す間隔。Open-Meteo の更新頻度に対して十分細かい。 */
+const WEATHER_INTERVAL_MS = 30 * 60 * 1000;
+/** 画面に戻ったとき、これより古ければ取り直す。 */
+const WEATHER_STALE_MS = 10 * 60 * 1000;
+
 
 /** 費用の目安を円で見せるための換算レート。正確な請求額ではない。 */
 const USD_TO_JPY = 150;
@@ -62,6 +67,8 @@ export default function App() {
   const [ringing, setRinging] = useState(false);
   const [, forceTick] = useState(0);
   const [weather, setWeather] = useState<Weather | null>(null);
+  /** 天気を最後に取得した時刻。復帰時に取り直すか判断するのに使う。 */
+  const weatherAtRef = useRef(0);
   const [showLog, setShowLog] = useState(false);
   const [answer, setAnswer] = useState("");
   const [answerDone, setAnswerDone] = useState(false);
@@ -261,28 +268,48 @@ export default function App() {
     return true;
   }, [log]);
 
-  // 待機画面に出す天気。Open-Meteo は無料なので定期取得してよい。
+  // 待機画面に出す天気。
+  // Open-Meteo は無料だが、会話のたびに取り直すのは無駄なので稼働中かどうかだけを見る。
+  const running = mode !== "停止中";
   useEffect(() => {
-    if (mode === "停止中") return;
+    if (!running) return;
     let alive = true;
+
     const fetchWeather = async () => {
       try {
         const loc = settingsRef.current.location;
-        const q = new URLSearchParams({ day: "today" });
+        const q = new URLSearchParams();
         if (loc.lat != null && loc.lon != null) {
           q.set("lat", String(loc.lat));
           q.set("lon", String(loc.lon));
+          if (loc.name) q.set("name", loc.name);
         }
         const res = await fetch(`/api/tools/weather?${q}`);
-        if (res.ok && alive) setWeather((await res.json()) as Weather);
+        if (!res.ok || !alive) return;
+        setWeather((await res.json()) as Weather);
+        weatherAtRef.current = Date.now();
       } catch {
         /* 取れなければ待機画面から天気が消えるだけ */
       }
     };
+
     void fetchWeather();
-    const id = setInterval(fetchWeather, 30 * 60 * 1000);
-    return () => { alive = false; clearInterval(id); };
-  }, [mode]);
+    const id = setInterval(fetchWeather, WEATHER_INTERVAL_MS);
+
+    // iOS は画面を離れると JS を止めるため setInterval も止まる。
+    // 戻ってきたときに古いままにならないよう、経過を見て取り直す。
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - weatherAtRef.current > WEATHER_STALE_MS) void fetchWeather();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      alive = false;
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [running]);
 
   // タイマーは会話とは独立して動く。LLM もネットワークも通さない。
   useEffect(() => {
