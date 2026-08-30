@@ -4,7 +4,7 @@ import { MediaController, type Facing, type Frame } from "./media";
 import { MODEL_URL, modelAvailable } from "./wakeword/config";
 import SettingsPanel from "./SettingsPanel";
 import { loadSettings, saveSettings, wakeWordOf, type Settings } from "./settings";
-import { getDeviceKey, pickUpKeyFromUrl } from "./auth";
+import { apiFetch, pickUpKeyFromUrl } from "./auth";
 // 型だけの参照。verbatimModuleSyntax によりビルド時に消えるため、
 // Porcupine 本体は初期バンドルに入らない。
 import type { WakeWordDetector } from "./wakeword";
@@ -149,7 +149,6 @@ export default function App() {
           },
           timers: timersRef.current!,
           location: settingsRef.current.location,
-          deviceKey: getDeviceKey(),
           log,
         }),
       onAnswer: (text, done) => {
@@ -168,7 +167,6 @@ export default function App() {
     }, {
       idleSec: settingsRef.current.idleSec,
       model: settingsRef.current.model,
-      deviceKey: getDeviceKey(),
     });
     sessionRef.current = session;
     await session.start(stream);
@@ -296,12 +294,22 @@ export default function App() {
           q.set("lon", String(loc.lon));
           if (loc.name) q.set("name", loc.name);
         }
-        const res = await fetch(`/api/tools/weather?${q}`);
-        if (!res.ok || !alive) return;
+        const res = await apiFetch(`/api/tools/weather?${q}`);
+        if (!alive) return;
+        if (!res.ok) {
+          // 黙って消えると原因が分からないので必ず残す。
+          log(
+            res.status === 401
+              ? "天気を取得できません。デバイスキーが未設定です（設定画面で確認）"
+              : `天気の取得に失敗しました (${res.status})`,
+            "warn",
+          );
+          return;
+        }
         setWeather((await res.json()) as Weather);
         weatherAtRef.current = Date.now();
-      } catch {
-        /* 取れなければ待機画面から天気が消えるだけ */
+      } catch (err) {
+        log(`天気の取得に失敗しました: ${(err as Error).message}`, "warn");
       }
     };
 
@@ -321,7 +329,7 @@ export default function App() {
       clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [running]);
+  }, [running, log]);
 
   // タイマーは会話とは独立して動く。LLM もネットワークも通さない。
   useEffect(() => {

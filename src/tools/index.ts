@@ -11,6 +11,7 @@
  */
 import type { Frame } from "../media";
 import { describe, remaining, type TimerStore } from "./timer";
+import { apiFetch } from "../auth";
 
 export interface ToolResult {
   /** function_call_output として AI に返す値。 */
@@ -24,7 +25,6 @@ export interface ToolContext {
   timers: TimerStore;
   /** 端末で設定した現在地。無ければ Worker の既定地点が使われる。 */
   location: { lat?: number; lon?: number; name?: string };
-  deviceKey?: string;
   log: (message: string, kind?: "ok" | "ng" | "warn") => void;
 }
 
@@ -68,9 +68,7 @@ export async function runTool(
         q.set("lon", String(ctx.location.lon));
         if (ctx.location.name) q.set("name", ctx.location.name);
       }
-      const res = await fetch(`/api/tools/weather?${q}`, {
-        headers: ctx.deviceKey ? { authorization: `Bearer ${ctx.deviceKey}` } : {},
-      });
+      const res = await apiFetch(`/api/tools/weather?${q}`);
       if (!res.ok) return { output: { error: `天気の取得に失敗しました (${res.status})` } };
       const w = (await res.json()) as {
         場所: string;

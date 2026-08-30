@@ -9,6 +9,7 @@
 
 import { addUsage, costUsd, emptyUsage, type Usage } from "./pricing";
 import type { ToolResult } from "./tools";
+import { apiFetch } from "./auth";
 
 export type Phase = "idle" | "connecting" | "ready" | "listening" | "thinking" | "speaking" | "error";
 
@@ -33,7 +34,6 @@ function labelOf(name: string): string {
 export interface SessionOptions {
   idleSec: number;
   model: string;
-  deviceKey?: string;
 }
 
 export interface Metrics {
@@ -147,13 +147,12 @@ export class RealtimeSession {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      const res = await fetch("/api/session", {
+      const res = await apiFetch("/api/session", {
         method: "POST",
         headers: {
           "content-type": "application/sdp",
           // 使うモデルは端末側の設定で選べる。Worker が許可リストで検証する。
           "x-neai-model": this.opts.model,
-          ...(this.opts.deviceKey ? { authorization: `Bearer ${this.opts.deviceKey}` } : {}),
         },
         body: offer.sdp,
       });
