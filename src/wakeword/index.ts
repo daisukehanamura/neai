@@ -90,8 +90,10 @@ export class WakeWordDetector {
 
     // 認識対象を絞ると精度が上がり、CPU も下がる。
     this.recognizer = new this.model.KaldiRecognizer(16000, JSON.stringify(this.config.grammar));
-    this.recognizer.on("partialresult", (m) => this.check(m.result.partial ?? ""));
-    this.recognizer.on("result", (m) => this.check(m.result.text ?? ""));
+    // 途中経過は文字列が揺れるので、コマンドの判定には使わない。
+    // ウェイクワードだけは反応の速さを優先して途中経過でも見る。
+    this.recognizer.on("partialresult", (m) => this.check(m.result.partial ?? "", false));
+    this.recognizer.on("result", (m) => this.check(m.result.text ?? "", true));
 
     // 16kHz を直接要求する。実機ではこれが通ることを確認済み。
     const ctx = new AudioContext({ sampleRate: 16000 });
@@ -159,12 +161,13 @@ export class WakeWordDetector {
     this.onLog(`ウェイクワード待機開始「${this.config.label}」（通信なし）`, "ok");
   }
 
-  private check(text: string): void {
+  private check(text: string, isFinal: boolean): void {
     if (!this.listening || !text) return;
     if (performance.now() - this.lastHit < COOLDOWN_MS) return;
 
-    // ローカルコマンドを先に見る。処理できたら会話は開かない。
-    if (this.onCommand?.(text)) {
+    // ローカルコマンドは確定した文だけで判定する。
+    // 途中経過で判定すると、言い終わる前の断片で誤動作する。
+    if (isFinal && this.onCommand?.(text)) {
       this.cancelPendingWake();
       this.lastHit = performance.now();
       return;
