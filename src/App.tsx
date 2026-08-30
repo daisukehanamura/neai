@@ -14,10 +14,13 @@ import { TimerStore, remaining, type Timer } from "./tools/timer";
 import { commandGrammar, matchCommand, speak } from "./tools/commands";
 import Ambient, { type Weather } from "./Ambient";
 
-/** 天気を取り直す間隔。Open-Meteo の更新頻度に対して十分細かい。 */
-const WEATHER_INTERVAL_MS = 30 * 60 * 1000;
+/**
+ * 待機画面の天気を取り直す間隔。1日3回。
+ * 週間予報が主な用途で、日単位の予報はそう頻繁には変わらない。
+ */
+const WEATHER_INTERVAL_MS = 8 * 60 * 60 * 1000;
 /** 画面に戻ったとき、これより古ければ取り直す。 */
-const WEATHER_STALE_MS = 10 * 60 * 1000;
+const WEATHER_STALE_MS = 8 * 60 * 60 * 1000;
 
 
 /** 費用の目安を円で見せるための換算レート。正確な請求額ではない。 */
