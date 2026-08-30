@@ -55,3 +55,18 @@ export function maskedKey(): string {
   if (!k) return "未設定";
   return k.length <= 8 ? "設定済み" : `${k.slice(0, 4)}…${k.slice(-4)}（${k.length}文字）`;
 }
+
+/**
+ * /api/* を叩くときは必ずこれを使う。
+ * 鍵の付け忘れを防ぐため、個別に fetch を書かない。
+ */
+export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const key = getDeviceKey();
+  return fetch(path, {
+    ...init,
+    headers: {
+      ...(init?.headers ?? {}),
+      ...(key ? { authorization: `Bearer ${key}` } : {}),
+    },
+  });
+}
