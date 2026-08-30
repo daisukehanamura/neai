@@ -81,16 +81,19 @@ export default function Ambient({
         {now.getMonth() + 1}月{now.getDate()}日（{WEEK[now.getDay()]}）
       </div>
 
-      {weather?.現在 && (
+      {/* 当日の最高/最低が分かれば足りる。
+          現在の気温は取得が1日3回なので古い値になり、かえって誤解を生む。 */}
+      {today && (
         <div className="weather">
-          <span className="wx-icon">{icon(weather.現在.コード)}</span>
-          <span className="wx-temp">
-            {weather.現在.気温 != null ? `${Math.round(weather.現在.気温)}°` : ""}
+          <span className="wx-icon">{icon(today.コード)}</span>
+          <span className="wx-range">
+            <b>{today.最高 != null ? Math.round(today.最高) : "—"}°</b>
+            <span className="wx-slash">/</span>
+            <span className="wx-low">{today.最低 != null ? Math.round(today.最低) : "—"}°</span>
           </span>
           <span className="wx-note">
-            {weather.場所} {weather.現在.天気}
-            {today?.最低 != null && today?.最高 != null &&
-              ` ${Math.round(today.最低)}/${Math.round(today.最高)}°`}
+            {weather?.場所} {today.天気}
+            {today.降水確率 != null && ` 降水${today.降水確率}%`}
           </span>
         </div>
       )}
