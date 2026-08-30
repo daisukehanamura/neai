@@ -1,5 +1,8 @@
 import { sessionConfig, type Env } from "./config";
 
+/** 端末から指定できるモデル。ここに無い値は無視して既定に落とす。 */
+const ALLOWED_MODELS = ["gpt-realtime-2.1", "gpt-realtime-2.1-mini"];
+
 /**
  * ブラウザから受け取った SDP offer を、セッション設定と一緒に OpenAI へ中継する。
  * この方式（Unified Interface）なら、APIキーもツール定義もクライアントへ渡らない。
@@ -15,9 +18,13 @@ async function createCall(request: Request, env: Env): Promise<Response> {
     return json({ error: "OPENAI_API_KEY が設定されていません。.dev.vars を確認してください。" }, 500);
   }
 
+  // 使うモデルは端末側で選べるが、値をそのまま信用はしない。
+  const requested = request.headers.get("x-neai-model") ?? "";
+  const model = ALLOWED_MODELS.includes(requested) ? requested : env.REALTIME_MODEL;
+
   const form = new FormData();
   form.set("sdp", offer);
-  form.set("session", JSON.stringify(sessionConfig(env)));
+  form.set("session", JSON.stringify(sessionConfig(env, model)));
 
   const started = Date.now();
   const upstream = await fetch("https://api.openai.com/v1/realtime/calls", {
@@ -36,13 +43,13 @@ async function createCall(request: Request, env: Env): Promise<Response> {
   }
 
   const answer = await upstream.text();
-  console.log(`セッション確立 ${Date.now() - started}ms / model=${env.REALTIME_MODEL}`);
+  console.log(`セッション確立 ${Date.now() - started}ms / model=${model}`);
   return new Response(answer, {
     headers: {
       "content-type": "application/sdp",
       "cache-control": "no-store",
       // クライアントが料金表を引くために使う。秘密ではない。
-      "x-neai-model": env.REALTIME_MODEL,
+      "x-neai-model": model,
     },
   });
 }

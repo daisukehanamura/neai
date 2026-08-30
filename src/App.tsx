@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { IDLE_LIMIT_SEC, RealtimeSession, type Metrics, type Phase } from "./realtime";
+import { RealtimeSession, type Metrics, type Phase } from "./realtime";
 import { MediaController, type Facing, type Frame } from "./media";
-import { loadConfig, type WakeWordConfig } from "./wakeword/config";
+import { MODEL_URL, modelAvailable } from "./wakeword/config";
+import SettingsPanel from "./SettingsPanel";
+import { loadSettings, saveSettings, wakeWordOf, type Settings } from "./settings";
 // 型だけの参照。verbatimModuleSyntax によりビルド時に消えるため、
 // Porcupine 本体は初期バンドルに入らない。
 import type { WakeWordDetector } from "./wakeword";
 import { emptyUsage } from "./pricing";
+
 
 /** 費用の目安を円で見せるための換算レート。正確な請求額ではない。 */
 const USD_TO_JPY = 150;
@@ -37,9 +40,14 @@ export default function App() {
     replyMs: null, connectMs: null,
     usage: emptyUsage(), costUsd: 0, model: "",
   });
-  const [idleLeft, setIdleLeft] = useState(IDLE_LIMIT_SEC);
+  const [idleLeft, setIdleLeft] = useState(0);
   const [entries, setEntries] = useState<Entry[]>([]);
-  const [wakeConfig] = useState<WakeWordConfig | null>(() => loadConfig());
+  const [settings, setSettings] = useState<Settings>(() => loadSettings());
+  const [showSettings, setShowSettings] = useState(false);
+  const wake = wakeWordOf(settings);
+  // コールバックの中から常に最新の設定を読むための控え。
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
 
   // 棚に立てて画面をこちらに向けて使うため、既定は内カメラ。
   const mediaRef = useRef(new MediaController("user"));
@@ -47,6 +55,8 @@ export default function App() {
   const [lastFrame, setLastFrame] = useState<Frame | null>(null);
   const [answer, setAnswer] = useState("");
   const [answerDone, setAnswerDone] = useState(false);
+  const [keepLeft, setKeepLeft] = useState(0);
+  const answerRef = useRef<HTMLDivElement>(null);
   const sessionRef = useRef<RealtimeSession | null>(null);
   const detectorRef = useRef<WakeWordDetector | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -81,7 +91,7 @@ export default function App() {
 
     detectorRef.current?.pause();
     setMode("会話中");
-    setIdleLeft(IDLE_LIMIT_SEC);
+    setIdleLeft(settingsRef.current.idleSec);
 
     const session = new RealtimeSession({
       onPhase: (p, d) => {
@@ -108,12 +118,24 @@ export default function App() {
       },
       onAnswer: (text, done) => {
         // 空文字は新しい問いかけの合図。前の回答を消す。
-        if (text) { setAnswer(text); setAnswerDone(done); }
-        else { setAnswer(""); setAnswerDone(false); setLastFrame(null); }
+        if (text) {
+          setAnswer(text);
+          setAnswerDone(done);
+          if (done) setKeepLeft(settingsRef.current.keepSec);
+        } else {
+          setAnswer("");
+          setAnswerDone(false);
+          setKeepLeft(0);
+          setLastFrame(null);
+        }
       },
+    }, {
+      idleSec: settingsRef.current.idleSec,
+      model: settingsRef.current.model,
+      deviceKey: localStorage.getItem("neai_device_key") ?? undefined,
     });
     sessionRef.current = session;
-    await session.start(stream, localStorage.getItem("neai_device_key") ?? undefined);
+    await session.start(stream);
   }, [log]);
 
   /** 常設待機を始める。ここで一度だけマイクとカメラを取得する。 */
@@ -131,17 +153,33 @@ export default function App() {
       return;
     }
 
-    if (!wakeConfig) {
-      log("ウェイクワード未設定のためタップ開始で動きます（README を参照）", "warn");
+    if (!(await modelAvailable(MODEL_URL))) {
+      log("ウェイクワードのモデルが無いのでタップ開始で動きます", "warn");
+      log("有効にするには ./scripts/fetch-vosk-model.sh を実行してください");
       setMode("タップ待ち");
       return;
     }
 
     try {
-      log("ウェイクワード検出器を読み込み中…");
-      // Porcupine は WASM 込みで 3MB 超。待機を始めるときだけ読み込む。
+      // Vosk は WASM 込みで 5MB 超。待機を始めるときだけ読み込む。
       const { WakeWordDetector } = await import("./wakeword");
-      const detector = new WakeWordDetector(wakeConfig, () => void openConversation(), log);
+      const s = settingsRef.current;
+      const w = wakeWordOf(s);
+      const detector = new WakeWordDetector(
+        {
+          modelUrl: MODEL_URL,
+          grammar: w.grammar,
+          match: w.match,
+          label: w.label,
+          gain: s.gain,
+          compressor: s.compressor,
+          highpass: s.highpass,
+          gate: s.gate,
+          gateDb: s.gateDb,
+        },
+        () => void openConversation(),
+        log,
+      );
       await detector.start(mediaRef.current.audioTrack!);
       detectorRef.current = detector;
       setMode("ウェイクワード待機");
@@ -165,6 +203,25 @@ export default function App() {
     log("停止しました", "warn");
   };
 
+  // 読み上げ中は末尾を追いかける。長い回答でも今読まれている所が見える。
+  useEffect(() => {
+    if (!answerDone && answerRef.current) {
+      answerRef.current.scrollTop = answerRef.current.scrollHeight;
+    }
+  }, [answer, answerDone]);
+
+  // 読み終えてから一定時間で消す。残り続けると何の回答か分からなくなるため。
+  useEffect(() => {
+    if (keepLeft <= 0) return;
+    const id = setTimeout(() => setKeepLeft((n) => n - 1), 1000);
+    if (keepLeft === 1) {
+      setAnswer("");
+      setAnswerDone(false);
+      setLastFrame(null);
+    }
+    return () => clearTimeout(id);
+  }, [keepLeft]);
+
   const switchCamera = async () => {
     try {
       const next = await mediaRef.current.switchCamera();
@@ -173,6 +230,17 @@ export default function App() {
     } catch (err) {
       log(`カメラの切り替えに失敗: ${(err as Error).message}`, "ng");
     }
+  };
+
+  const applySettings = (next: Settings) => {
+    setSettings(next);
+    saveSettings(next);
+  };
+
+  const restartStandby = async () => {
+    setShowSettings(false);
+    await shutdown();
+    await boot();
   };
 
   const talking = mode === "会話中";
@@ -185,15 +253,25 @@ export default function App() {
         <div>
           <div className="status">{statusText}</div>
           {mode === "ウェイクワード待機" && (
-            <div className="detail">「{wakeConfig?.label}」と話しかけてください（通信していません）</div>
+            <div className="detail">「{wake.label}」と話しかけてください（通信していません）</div>
           )}
           {talking && detail && <div className="detail">{detail}</div>}
         </div>
+        <button className="gear" onClick={() => setShowSettings(true)} aria-label="設定">
+          設定
+        </button>
       </header>
 
-      <section className="answer" aria-live="polite">
+      <section className="answer" ref={answerRef} aria-live="polite">
         {answer ? (
-          <p className={answerDone ? "" : "streaming"}>{answer}</p>
+          <>
+            <p className={answerDone ? "" : "streaming"}>{answer}</p>
+            {answerDone && keepLeft > 0 && (
+              <div className="keep" aria-hidden="true">
+                <i style={{ width: `${(keepLeft / settings.keepSec) * 100}%` }} />
+              </div>
+            )}
+          </>
         ) : (
           <p className="empty">
             {talking ? "話しかけてください" : "回答はここに表示されます"}
@@ -258,6 +336,15 @@ export default function App() {
           </div>
           <img src={lastFrame.dataUrl} alt="直前に送信した映像" />
         </section>
+      )}
+
+      {showSettings && (
+        <SettingsPanel
+          value={settings}
+          onChange={applySettings}
+          onClose={() => setShowSettings(false)}
+          onRestartNeeded={() => void restartStandby()}
+        />
       )}
 
       <section className="log" aria-label="ログ">

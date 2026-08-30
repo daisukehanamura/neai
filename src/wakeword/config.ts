@@ -1,22 +1,25 @@
+/** 日本語モデル（tar.gz / 約48MB）の場所。 */
+export const MODEL_URL = import.meta.env.VITE_WAKEWORD_MODEL ?? "/wakeword/vosk-ja.tar.gz";
+
+/** 検出器に渡す設定。値そのものは src/settings.ts が持つ。 */
 export interface WakeWordConfig {
-  /** Picovoice Console で取得する。https://console.picovoice.ai/ */
-  accessKey: string;
-  /** 学習させたウェイクワード（.ppn）の公開パス。 */
-  keywordPath: string;
-  /** 日本語モデル（porcupine_params_ja.pv）の公開パス。 */
-  modelPath: string;
-  /** 画面に出すラベル。 */
+  modelUrl: string;
+  grammar: string[];
+  match: string[];
   label: string;
+  gain: number;
+  compressor: boolean;
+  highpass: boolean;
+  gate: boolean;
+  gateDb: number;
 }
 
-/** 設定が揃っているかどうか。揃っていなければタップ開始にフォールバックする。 */
-export function loadConfig(): WakeWordConfig | null {
-  const accessKey = import.meta.env.VITE_PICOVOICE_ACCESS_KEY;
-  if (!accessKey) return null;
-  return {
-    accessKey,
-    keywordPath: import.meta.env.VITE_WAKEWORD_PPN ?? "/wakeword/neai.ppn",
-    modelPath: import.meta.env.VITE_WAKEWORD_MODEL ?? "/wakeword/porcupine_params_ja.pv",
-    label: import.meta.env.VITE_WAKEWORD_LABEL ?? "ねえAI",
-  };
+/** モデルが配置されているか。無ければタップ開始で動かす。 */
+export async function modelAvailable(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, { method: "HEAD" });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }

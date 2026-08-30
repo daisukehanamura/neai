@@ -13,11 +13,15 @@ import type { Frame } from "./media";
 export type Phase = "idle" | "connecting" | "ready" | "listening" | "thinking" | "speaking" | "error";
 
 /**
- * 無操作でこの秒数が過ぎたら自動で切断する。
- * 接続中はマイク音声を送り続けるため、放置すると課金が積み上がる。
- * つなぎっぱなしは 1 時間あたり約 $1.15（gpt-realtime-2.1）。
+ * セッションごとの設定。画面から変更できる。
+ * 無操作の自動切断は費用対策。接続中はマイク音声を送り続けるため、
+ * 放置するとつなぎっぱなしで1時間あたり約170円かかる。
  */
-export const IDLE_LIMIT_SEC = 60;
+export interface SessionOptions {
+  idleSec: number;
+  model: string;
+  deviceKey?: string;
+}
 
 export interface Metrics {
   /** 発話終了から回答音声が鳴り始めるまで(ms)。要件の最重要指標。 */
@@ -68,7 +72,12 @@ export class RealtimeSession {
   private energyBaseline = 0;
   private pollTimer: number | null = null;
 
-  constructor(private cb: Callbacks) {}
+  constructor(
+    private cb: Callbacks,
+    private opts: SessionOptions,
+  ) {
+    this.metrics.model = opts.model;
+  }
 
   get mediaStream(): MediaStream | null {
     return this.stream;
@@ -77,7 +86,7 @@ export class RealtimeSession {
   /**
    * @param stream MediaController が保持しているストリーム。ここでは取得も停止もしない。
    */
-  async start(stream: MediaStream, deviceKey?: string): Promise<void> {
+  async start(stream: MediaStream): Promise<void> {
     try {
       this.stream = stream;
       const audio = stream.getAudioTracks()[0];
@@ -129,7 +138,9 @@ export class RealtimeSession {
         method: "POST",
         headers: {
           "content-type": "application/sdp",
-          ...(deviceKey ? { authorization: `Bearer ${deviceKey}` } : {}),
+          // 使うモデルは端末側の設定で選べる。Worker が許可リストで検証する。
+          "x-neai-model": this.opts.model,
+          ...(this.opts.deviceKey ? { authorization: `Bearer ${this.opts.deviceKey}` } : {}),
         },
         body: offer.sdp,
       });
@@ -190,11 +201,11 @@ export class RealtimeSession {
   private startIdleWatch(): void {
     this.lastActivity = performance.now();
     this.idleTimer = window.setInterval(() => {
-      const idleSec = (performance.now() - this.lastActivity) / 1000;
-      const left = Math.ceil(IDLE_LIMIT_SEC - idleSec);
+      const idle = (performance.now() - this.lastActivity) / 1000;
+      const left = Math.ceil(this.opts.idleSec - idle);
       this.cb.onIdle(Math.max(0, left));
       if (left <= 0) {
-        this.cb.onLog(`${IDLE_LIMIT_SEC}秒間の無操作で自動切断しました（課金停止）`, "warn");
+        this.cb.onLog(`${this.opts.idleSec}秒間の無操作で自動切断しました（課金停止）`, "warn");
         this.stop();
       }
     }, 1000);
@@ -260,9 +271,20 @@ export class RealtimeSession {
 
       // AI がツールを呼んだ。引数が出揃った時点で実行する。
       case "response.function_call_arguments.done": {
-        const call = event as unknown as { name: string; call_id: string };
-        if (call.name === "look_at_camera") this.handleLookAtCamera(call.call_id);
-        else this.replyToTool(call.call_id, { error: `未知のツール: ${call.name}` });
+        const call = event as unknown as { name: string; call_id: string; arguments?: string };
+        if (call.name === "look_at_camera") {
+          // 何を見ようとしたのかを残す。誤って撮ったときの原因調査に使う。
+          let target = "";
+          try {
+            target = (JSON.parse(call.arguments ?? "{}") as { target?: string }).target ?? "";
+          } catch {
+            /* 引数が壊れていても撮影自体は続ける */
+          }
+          this.cb.onLog(`カメラ呼び出し: ${target || "(理由なし)"}`, "warn");
+          this.handleLookAtCamera(call.call_id);
+        } else {
+          this.replyToTool(call.call_id, { error: `未知のツール: ${call.name}` });
+        }
         break;
       }
 

@@ -76,6 +76,19 @@ Picovoice の無料枠が2026年6月末で廃止されたため、代替とし�
     <label style="display:block;font-size:13px">
       <input type="checkbox" id="aec" checked> エコーキャンセル（切るとゲインが下がる）
     </label>
+
+    <p class="note" style="margin:10px 0 4px"><b>音響処理</b>（ゲインとは別の手。遠くの声に効く）</p>
+    <label style="display:block;font-size:13px">
+      <input type="checkbox" id="comp"> コンプレッサ（小さい音だけ持ち上げる・割れない）
+    </label>
+    <label style="display:block;font-size:13px">
+      <input type="checkbox" id="hpf"> ハイパスフィルタ（空調や冷蔵庫の低音を切る）
+    </label>
+    <label style="display:block;font-size:13px">
+      <input type="checkbox" id="gate"> ノイズゲート（静かなときは認識に回さない）
+      <span class="note">しきい値 <b id="gateval">-55</b> dBFS</span>
+      <input type="range" id="gatedb" min="-80" max="-30" step="1" value="-55" style="width:100%">
+    </label>
   </div>
 
   <div class="stat" style="margin-top:10px"><b>入力レベル</b><span id="s-level">—</span></div>
@@ -93,7 +106,7 @@ Picovoice の無料枠が2026年6月末で廃止されたため、代替とし�
 
   <label class="note" style="display:block;margin-top:12px">
     検出したい語（部分一致・カンマ区切り）
-    <input id="targets" value="ねえ,ねー,ねぇ,エーアイ,タイマー,止めて,何時">
+    <input id="targets" value="クラピカ,ハンター,旅団,キメラ,ジャービス,エーアイ,タイマー,止めて,何時">
   </label>
 
   <div style="border:1px solid #2b2b33;border-radius:10px;padding:12px;margin-top:12px">
@@ -105,15 +118,16 @@ Picovoice の無料枠が2026年6月末で廃止されたため、代替とし�
       <b>[unk] は必ず残すこと。</b>これが無いと、無関係な音まで一番近い語句に強制的に当てはめてしまう。
       語彙表に存在する語しか書けない（確認済みの語を初期値にしてある）。
     </p>
-    <textarea id="grammar" rows="9" style="width:100%;padding:10px;font:13px/1.6 ui-monospace,Menlo,monospace;color:#fff;background:#08080a;border:1px solid #3a3a44;border-radius:8px">ねえ エーアイ
-ねー エーアイ
-ねぇ エーアイ
+    <textarea id="grammar" rows="12" style="width:100%;padding:10px;font:13px/1.6 ui-monospace,Menlo,monospace;color:#fff;background:#08080a;border:1px solid #3a3a44;border-radius:8px">ねえ クラピカ
+クラピカ
+ハンター ハンター
+幻影 旅団
+キメラ アント
+ねえ ジャービス
+ねえ エーアイ
 エーアイ
 タイマー 三 分
-タイマー 五 分
-タイマー 十 分
 止めて
-停止
 今 何時
 [unk]</textarea>
   </div>
@@ -157,6 +171,8 @@ Picovoice の無料枠が2026年6月末で廃止されたため、代替とし�
   let model = null, recognizer = null, ctx = null, stream = null;
   let hits = 0, procTime = 0, audioTime = 0;
   let gainNode = null, meterRaf = 0;
+
+  $("gatedb").oninput = () => { $("gateval").textContent = $("gatedb").value; };
 
   $("gain").oninput = () => {
     const v = Number($("gain").value);
@@ -266,10 +282,36 @@ Picovoice の無料枠が2026年6月末で廃止されたため、代替とし�
 
       const src = ctx.createMediaStreamSource(stream);
 
-      // Vosk へ渡す前に増幅する。遠くの声を届かせるための最初の一手。
+      // 音響チェーンを組む。順序は ハイパス → コンプレッサ → ゲイン。
+      // 低音を先に落としてからならコンプレッサが声に反応しやすい。
+      let chain = src;
+      const applied = [];
+
+      if ($("hpf").checked) {
+        const hp = ctx.createBiquadFilter();
+        hp.type = "highpass";
+        hp.frequency.value = 100;   // 空調・冷蔵庫・床鳴りの帯域を落とす
+        chain.connect(hp); chain = hp;
+        applied.push("ハイパス100Hz");
+      }
+
+      if ($("comp").checked) {
+        const c = ctx.createDynamicsCompressor();
+        c.threshold.value = -45;   // 遠くの小さな声から効かせる
+        c.knee.value = 20;
+        c.ratio.value = 8;
+        c.attack.value = 0.003;
+        c.release.value = 0.15;
+        chain.connect(c); chain = c;
+        applied.push("コンプレッサ");
+      }
+
+      // Vosk へ渡す前に増幅する。コンプレッサと併用すると割れにくい。
       gainNode = ctx.createGain();
       gainNode.gain.value = Number($("gain").value);
-      src.connect(gainNode);
+      chain.connect(gainNode);
+      applied.push("ゲイン" + $("gain").value + "倍");
+      log("音響チェーン: " + applied.join(" → "));
 
       // 入力レベルの可視化。距離による差を見るため。
       const analyser = ctx.createAnalyser();
@@ -288,7 +330,20 @@ Picovoice の無料枠が2026年6月末で廃止されたため、代替とし�
       })();
 
       const node = ctx.createScriptProcessor(4096, 1, 1);
+      let gated = 0;
       node.onaudioprocess = (e) => {
+        // ゲートが有効なら、静かな区間は認識に回さない。
+        // 誤検出とCPUの両方が減る。
+        if ($("gate").checked) {
+          const ch = e.inputBuffer.getChannelData(0);
+          let sum = 0;
+          for (let i = 0; i < ch.length; i++) sum += ch[i] * ch[i];
+          const db = 20 * Math.log10(Math.sqrt(sum / ch.length) || 1e-7);
+          if (db < Number($("gatedb").value)) {
+            if (++gated % 200 === 0) log(`ゲートで ${gated} フレーム除外`);
+            return;
+          }
+        }
         const t0 = performance.now();
         try { recognizer.acceptWaveform(e.inputBuffer); }
         catch (err) { log("acceptWaveform 失敗: " + err.message, "ng"); }
