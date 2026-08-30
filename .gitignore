@@ -18,3 +18,5 @@ spike/models/
 spike/vendor/
 public/wakeword/vosk-ja.tar.gz.part*
 public/wakeword/manifest.json
+
+.device-key

@@ -72,9 +72,35 @@ function explain(status: number, detail: string): string {
   return "OpenAI がセッションを拒否しました。";
 }
 
-/** DEVICE_KEY が設定されているときだけ Bearer 認証を要求する。 */
-function authorized(request: Request, env: Env): boolean {
-  if (!env.DEVICE_KEY) return true;
+/**
+ * 手元からの接続かどうか。localhost と RFC1918 の私設アドレスを手元とみなす。
+ * 開発用の HTTPS プロキシは LAN の IP で待ち受けるため、そこも含める。
+ */
+function isLocal(url: URL): boolean {
+  const h = url.hostname;
+  if (h === "localhost" || h === "127.0.0.1" || h === "::1") return true;
+
+  // ホスト名の全体が IPv4 であることを確かめる。前方一致だけで判定すると
+  // 172.20.10.3.example.com のような名前を手元とみなしてしまう。
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (!m) return false;
+  const [a, b] = [Number(m[1]), Number(m[2])];
+  if (m.slice(1).some((n) => Number(n) > 255)) return false;
+
+  if (a === 10) return true;
+  if (a === 192 && b === 168) return true;
+  return a === 172 && b >= 16 && b <= 31;
+}
+
+/**
+ * 認証。
+ *
+ * DEVICE_KEY があれば Bearer を検証する。
+ * 無い場合は手元からの接続だけを許し、**公開環境では閉じる**。
+ * 鍵を設定し忘れたまま公開しても、誰でも使える状態にはならない。
+ */
+function authorized(request: Request, env: Env, url: URL): boolean {
+  if (!env.DEVICE_KEY) return isLocal(url);
   const header = request.headers.get("authorization") ?? "";
   const given = header.startsWith("Bearer ") ? header.slice(7) : "";
   return timingSafeEqual(given, env.DEVICE_KEY);
@@ -100,7 +126,16 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname.startsWith("/api/")) {
-      if (!authorized(request, env)) return json({ error: "認証が必要です" }, 401);
+      if (!authorized(request, env, url)) {
+        return json(
+          {
+            error: env.DEVICE_KEY
+              ? "デバイスキーが必要です。初回は #k=キー 付きの URL で開いてください。"
+              : "DEVICE_KEY が未設定です。npx wrangler secret put DEVICE_KEY で設定してください。",
+          },
+          401,
+        );
+      }
 
       if (url.pathname === "/api/session" && request.method === "POST") {
         return createCall(request, env);
