@@ -64,6 +64,8 @@ export async function getWeather(
     場所: fallback.name,
     いつ: index === 1 ? "明日" : "今日",
     天気: code !== undefined ? (WEATHER[code] ?? "不明") : "不明",
+    // 画面にアイコンを出すために生のコードも返す。読み上げには使わない。
+    コード: code,
     最高気温: d?.temperature_2m_max?.[index],
     最低気温: d?.temperature_2m_min?.[index],
     降水確率: d?.precipitation_probability_max?.[index],

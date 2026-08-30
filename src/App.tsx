@@ -11,6 +11,7 @@ import { emptyUsage } from "./pricing";
 import { runTool } from "./tools";
 import { TimerStore, remaining, type Timer } from "./tools/timer";
 import { commandGrammar, matchCommand, speak } from "./tools/commands";
+import Ambient, { type Weather } from "./Ambient";
 
 
 /** 費用の目安を円で見せるための換算レート。正確な請求額ではない。 */
@@ -60,6 +61,8 @@ export default function App() {
   const [timers, setTimers] = useState<Timer[]>([]);
   const [ringing, setRinging] = useState(false);
   const [, forceTick] = useState(0);
+  const [weather, setWeather] = useState<Weather | null>(null);
+  const [showLog, setShowLog] = useState(false);
   const [answer, setAnswer] = useState("");
   const [answerDone, setAnswerDone] = useState(false);
   const [keepLeft, setKeepLeft] = useState(0);
@@ -258,6 +261,29 @@ export default function App() {
     return true;
   }, [log]);
 
+  // 待機画面に出す天気。Open-Meteo は無料なので定期取得してよい。
+  useEffect(() => {
+    if (mode === "停止中") return;
+    let alive = true;
+    const fetchWeather = async () => {
+      try {
+        const loc = settingsRef.current.location;
+        const q = new URLSearchParams({ day: "today" });
+        if (loc.lat != null && loc.lon != null) {
+          q.set("lat", String(loc.lat));
+          q.set("lon", String(loc.lon));
+        }
+        const res = await fetch(`/api/tools/weather?${q}`);
+        if (res.ok && alive) setWeather((await res.json()) as Weather);
+      } catch {
+        /* 取れなければ待機画面から天気が消えるだけ */
+      }
+    };
+    void fetchWeather();
+    const id = setInterval(fetchWeather, 30 * 60 * 1000);
+    return () => { alive = false; clearInterval(id); };
+  }, [mode]);
+
   // タイマーは会話とは独立して動く。LLM もネットワークも通さない。
   useEffect(() => {
     if (timersRef.current) return;
@@ -321,121 +347,147 @@ export default function App() {
   const talking = mode === "会話中";
   const statusText = talking ? PHASE_LABEL[phase] : mode;
 
+  // 待機中で見せるものが無いときは、時計の画面にする。
+  // 常設端末なので、何も出ていない画面は画面を遊ばせているのと同じ。
+  const ambient = !talking && mode !== "停止中" && mode !== "起動中" && !answer;
+
   return (
-    <main className={`app phase-${talking ? phase : "idle"}`}>
+    <main className={`app phase-${talking ? phase : "idle"} ${ambient ? "is-ambient" : ""}`}>
       <header className="bar">
         <div className="orb" aria-hidden="true" />
         <div>
           <div className="status">{statusText}</div>
-          {mode === "ウェイクワード待機" && (
-            <div className="detail">「{wake.label}」と話しかけてください（通信していません）</div>
-          )}
           {talking && detail && <div className="detail">{detail}</div>}
         </div>
-        <button className="gear" onClick={() => setShowSettings(true)} aria-label="設定">
-          設定
+        <button className="gear" onClick={() => setShowLog((v) => !v)}>
+          {showLog ? "ログ×" : "ログ"}
         </button>
+        <button className="gear" onClick={() => setShowSettings(true)}>設定</button>
       </header>
 
-      <section className="answer" ref={answerRef} aria-live="polite">
-        {answer ? (
-          <>
-            <p className={answerDone ? "" : "streaming"}>{answer}</p>
-            {answerDone && keepLeft > 0 && (
-              <div className="keep" aria-hidden="true">
-                <i style={{ width: `${(keepLeft / settings.keepSec) * 100}%` }} />
-              </div>
+      {ambient ? (
+        <Ambient
+          weather={weather}
+          timers={timers}
+          ringing={ringing}
+          wakeLabel={wake.label}
+          tapToStart={mode === "タップ待ち"}
+          onSilence={() => { timersRef.current?.silence(); setRinging(false); }}
+        />
+      ) : (
+        <>
+          <section className="answer" ref={answerRef} aria-live="polite">
+            {answer ? (
+              <>
+                <p className={answerDone ? "" : "streaming"}>{answer}</p>
+                {answerDone && keepLeft > 0 && (
+                  <div className="keep" aria-hidden="true">
+                    <i style={{ width: `${(keepLeft / settings.keepSec) * 100}%` }} />
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="empty">
+                {mode === "停止中" ? "「常設待機を開始」を押してください" : "話しかけてください"}
+              </p>
             )}
-          </>
-        ) : (
-          <p className="empty">
-            {talking ? "話しかけてください" : "回答はここに表示されます"}
-          </p>
-        )}
-      </section>
+          </section>
 
-      <dl className="metrics">
-        <div>
-          <dt>回答開始まで</dt>
-          <dd className={metrics.replyMs !== null && metrics.replyMs <= 1200 ? "good" : undefined}>
-            {metrics.replyMs === null ? "—" : `${metrics.replyMs} ms`}
-          </dd>
-        </div>
-        <div>
-          <dt>累計費用</dt>
-          <dd className={metrics.costUsd > 0.1 ? "warn" : undefined}>
-            {metrics.costUsd === 0 ? "—" : `¥${(metrics.costUsd * USD_TO_JPY).toFixed(1)}`}
-          </dd>
-        </div>
-      </dl>
+          {(timers.length > 0 || ringing) && (
+            <section className={`timers ${ringing ? "ringing" : ""}`}>
+              {ringing && (
+                <button
+                  className="stop-alarm"
+                  onClick={() => { timersRef.current?.silence(); setRinging(false); }}
+                >
+                  アラームを止める
+                </button>
+              )}
+              {timers.map((t) => (
+                <div key={t.id} className="timer">
+                  <span className="timer-label">{t.label}</span>
+                  <span className="timer-left">{remaining(t)}</span>
+                  <button
+                    onClick={() => { timersRef.current?.cancel(t.id); setRinging(false); }}
+                    aria-label="取り消し"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </section>
+          )}
 
-      {(metrics.usage.audioOut > 0 || metrics.usage.textOut > 0) && (
-        <p className="tokens">
-          音声 入{metrics.usage.audioIn} / 出{metrics.usage.audioOut}
-          {" ・ "}テキスト 入{metrics.usage.textIn} / 出{metrics.usage.textOut}
-          {metrics.usage.imageIn > 0 && ` ・ 画像 ${metrics.usage.imageIn}`}
-          {metrics.usage.audioInCached > 0 && ` ・ キャッシュ ${metrics.usage.audioInCached}`}
-        </p>
-      )}
+          {lastFrame && (
+            <section className="shot">
+              <div className="shot-head">
+                <span>AI に送った画像</span>
+                <span>
+                  {lastFrame.width}x{lastFrame.height} / {Math.round(lastFrame.bytes / 1024)}KB /{" "}
+                  {lastFrame.ms}ms
+                </span>
+              </div>
+              <img src={lastFrame.dataUrl} alt="直前に送信した映像" />
+            </section>
+          )}
 
-      {talking && (
-        <p className="idle">
-          無操作あと <b>{idleLeft}</b> 秒で自動切断
-          {metrics.model && <span className="model"> / {metrics.model}</span>}
-        </p>
+          {talking && (
+            <p className="idle">
+              無操作あと <b>{idleLeft}</b> 秒で自動切断
+              {metrics.model && <span className="model"> / {metrics.model}</span>}
+            </p>
+          )}
+        </>
       )}
 
       {mode === "停止中" && (
         <button className="action" onClick={boot}>常設待機を開始</button>
       )}
-      {mode === "タップ待ち" && (
+      {mode === "タップ待ち" && !talking && (
         <button className="action" onClick={() => void openConversation()}>話しかける</button>
       )}
-      {mode !== "停止中" && mode !== "起動中" && (
-        <div className="row">
-          <button className="action secondary" onClick={() => void switchCamera()} disabled={talking}>
-            カメラ: {facing === "user" ? "内" : "外"}
-          </button>
-          <button className="action secondary" onClick={() => void shutdown()}>停止</button>
-        </div>
-      )}
 
-      {(timers.length > 0 || ringing) && (
-        <section className={`timers ${ringing ? "ringing" : ""}`}>
-          {ringing && (
-            <button
-              className="stop-alarm"
-              onClick={() => { timersRef.current?.silence(); setRinging(false); }}
-            >
-              アラームを止める
-            </button>
-          )}
-          {timers.map((t) => (
-            <div key={t.id} className="timer">
-              <span className="timer-label">{t.label}</span>
-              <span className="timer-left">{remaining(t)}</span>
-              <button
-                onClick={() => { timersRef.current?.cancel(t.id); setRinging(false); }}
-                aria-label="取り消し"
-              >
-                ×
-              </button>
+      {showLog && (
+        <>
+          <dl className="metrics">
+            <div>
+              <dt>回答開始まで</dt>
+              <dd className={metrics.replyMs !== null && metrics.replyMs <= 1200 ? "good" : undefined}>
+                {metrics.replyMs === null ? "—" : `${metrics.replyMs} ms`}
+              </dd>
             </div>
-          ))}
-        </section>
-      )}
+            <div>
+              <dt>累計費用</dt>
+              <dd className={metrics.costUsd > 0.1 ? "warn" : undefined}>
+                {metrics.costUsd === 0 ? "—" : `¥${(metrics.costUsd * USD_TO_JPY).toFixed(1)}`}
+              </dd>
+            </div>
+          </dl>
 
-      {lastFrame && (
-        <section className="shot">
-          <div className="shot-head">
-            <span>AI に送った画像</span>
-            <span>
-              {lastFrame.width}x{lastFrame.height} / {Math.round(lastFrame.bytes / 1024)}KB /{" "}
-              {lastFrame.ms}ms
-            </span>
+          {(metrics.usage.audioOut > 0 || metrics.usage.textOut > 0) && (
+            <p className="tokens">
+              音声 入{metrics.usage.audioIn} / 出{metrics.usage.audioOut}
+              {" ・ "}テキスト 入{metrics.usage.textIn} / 出{metrics.usage.textOut}
+              {metrics.usage.imageIn > 0 && ` ・ 画像 ${metrics.usage.imageIn}`}
+              {metrics.usage.audioInCached > 0 && ` ・ キャッシュ ${metrics.usage.audioInCached}`}
+            </p>
+          )}
+
+          <div className="row">
+            <button className="action secondary" onClick={() => void switchCamera()} disabled={talking}>
+              カメラ: {facing === "user" ? "内" : "外"}
+            </button>
+            <button className="action secondary" onClick={() => void shutdown()}>停止</button>
           </div>
-          <img src={lastFrame.dataUrl} alt="直前に送信した映像" />
-        </section>
+
+          <section className="log" aria-label="ログ">
+            {entries.map((e, i) => (
+              <div key={i} className={e.kind}>
+                <span className="t">{e.time}</span> {e.message}
+              </div>
+            ))}
+          </section>
+        </>
       )}
 
       {showSettings && (
@@ -447,13 +499,6 @@ export default function App() {
         />
       )}
 
-      <section className="log" aria-label="ログ">
-        {entries.map((e, i) => (
-          <div key={i} className={e.kind}>
-            <span className="t">{e.time}</span> {e.message}
-          </div>
-        ))}
-      </section>
     </main>
   );
 }

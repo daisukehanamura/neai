@@ -342,3 +342,104 @@ body {
   font-size: 13px;
   background: #2b2b33;
 }
+
+/* ---- 待機画面（アンビエント） ----
+   常設端末は離れた場所から見るので、時刻を最優先に大きく取る。
+   iPhone XR は LCD なので焼き付きの心配はない。 */
+.app.is-ambient { justify-content: center; }
+
+.ambient {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.clock {
+  display: flex;
+  align-items: baseline;
+  font: 300 clamp(72px, 26vw, 150px)/1 ui-monospace, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.03em;
+  color: #f2f2f4;
+}
+.clock .colon {
+  padding: 0 .04em;
+  color: var(--dim);
+  animation: colon 2s steps(2) infinite;
+}
+@keyframes colon { 50% { opacity: .25; } }
+
+.date { font-size: 17px; color: var(--dim); letter-spacing: .06em; }
+
+.weather {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 10px 18px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.wx-icon { font-size: 24px; line-height: 1; }
+.wx-temp { font: 600 24px/1 ui-monospace, Menlo, monospace; }
+.wx-note { font-size: 13px; color: var(--dim); }
+
+.ambient-timers {
+  margin-top: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 320px;
+}
+.ambient-timer {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #101014;
+  font-size: 14px;
+  color: var(--dim);
+}
+.ambient-timer b {
+  font: 600 30px/1 ui-monospace, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+
+.wake-hint {
+  margin-top: 26px;
+  font-size: 13px;
+  color: #55555f;
+  letter-spacing: .04em;
+}
+
+/* アラームは画面いっぱいで、どこを触っても止まるようにする。 */
+.alarm-full {
+  width: 100%;
+  min-height: 220px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #7f1d1d;
+  border: 2px solid #dc2626;
+  border-radius: 16px;
+  animation: alarm 1s ease-in-out infinite;
+}
+@keyframes alarm { 50% { background: #b91c1c; } }
+.alarm-title { font-size: 30px; font-weight: 700; }
+.alarm-sub { font-size: 14px; opacity: .8; font-weight: 400; }
+
+/* 待機中は状態表示を目立たせない。時計の邪魔をしないため。 */
+.is-ambient .bar .status { color: var(--dim); font-size: 13px; font-weight: 500; }
+.is-ambient .orb { width: 26px; height: 26px; }
