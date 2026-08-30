@@ -61,6 +61,28 @@ Picovoice の無料枠が2026年6月末で廃止されたため、代替とし�
   <div class="stat"><b>AudioContext</b><span id="s-rate">—</span></div>
   <div class="stat"><b>処理の余裕</b><span id="s-rtf">—</span></div>
   <div class="stat"><b>検出回数</b><span id="s-hits">0</span></div>
+  <div style="border:1px solid #2b2b33;border-radius:10px;padding:12px;margin-top:10px">
+    <p class="note" style="margin:0 0 8px"><b>マイク設定</b>（変更したら「マイクを開始」を押し直す）</p>
+    <label style="display:block;font-size:13px">
+      入力ゲイン <b id="gainval">1.0</b> 倍
+      <input type="range" id="gain" min="1" max="20" step="0.5" value="1" style="width:100%">
+    </label>
+    <label style="display:block;font-size:13px;margin-top:6px">
+      <input type="checkbox" id="ns" checked> ノイズ抑制（遠くの声を消している可能性）
+    </label>
+    <label style="display:block;font-size:13px">
+      <input type="checkbox" id="agc" checked> 自動ゲイン制御
+    </label>
+    <label style="display:block;font-size:13px">
+      <input type="checkbox" id="aec" checked> エコーキャンセル（切るとゲインが下がる）
+    </label>
+  </div>
+
+  <div class="stat" style="margin-top:10px"><b>入力レベル</b><span id="s-level">—</span></div>
+  <div class="bar"><i id="lvlbar" style="background:#4ade80"></i></div>
+  <p class="note">口元で話したときと、離れて話したときの差を見る。
+  離れて −45dBFS を下回ると認識は苦しい。</p>
+
   <button class="primary" id="bstart" disabled>マイクを開始</button>
 
   <p class="note" style="margin-top:12px">認識中（話している途中）</p>
@@ -71,8 +93,30 @@ Picovoice の無料枠が2026年6月末で廃止されたため、代替とし�
 
   <label class="note" style="display:block;margin-top:12px">
     検出したい語（部分一致・カンマ区切り）
-    <input id="targets" value="ねえ,ねー,ネエ,えーあい,エーアイ,ai,エイアイ">
+    <input id="targets" value="ねえ,ねー,ねぇ,エーアイ,タイマー,止めて,何時">
   </label>
+
+  <div style="border:1px solid #2b2b33;border-radius:10px;padding:12px;margin-top:12px">
+    <label style="display:block;font-size:13px;font-weight:600">
+      <input type="checkbox" id="usegrammar"> 文法を限定する（精度が上がる・CPUも下がる）
+    </label>
+    <p class="note" style="margin:6px 0">
+      認識対象を下の語句だけに絞る。全文認識より格段に当たりやすくなる。
+      <b>[unk] は必ず残すこと。</b>これが無いと、無関係な音まで一番近い語句に強制的に当てはめてしまう。
+      語彙表に存在する語しか書けない（確認済みの語を初期値にしてある）。
+    </p>
+    <textarea id="grammar" rows="9" style="width:100%;padding:10px;font:13px/1.6 ui-monospace,Menlo,monospace;color:#fff;background:#08080a;border:1px solid #3a3a44;border-radius:8px">ねえ エーアイ
+ねー エーアイ
+ねぇ エーアイ
+エーアイ
+タイマー 三 分
+タイマー 五 分
+タイマー 十 分
+止めて
+停止
+今 何時
+[unk]</textarea>
+  </div>
   <p class="note"><b>「ねえAI」と何度か話しかけて、上に何と出るか見てください。</b>
   Vosk が実際に返す文字列を見てから、検出条件を決めます。</p>
 </section>
@@ -112,6 +156,13 @@ Picovoice の無料枠が2026年6月末で廃止されたため、代替とし�
 
   let model = null, recognizer = null, ctx = null, stream = null;
   let hits = 0, procTime = 0, audioTime = 0;
+  let gainNode = null, meterRaf = 0;
+
+  $("gain").oninput = () => {
+    const v = Number($("gain").value);
+    $("gainval").textContent = v.toFixed(1);
+    if (gainNode) gainNode.gain.value = v;
+  };
 
   // ---------- モデル読み込み ----------
   $("bload").onclick = async () => {
@@ -156,7 +207,25 @@ Picovoice の無料枠が2026年6月末で廃止されたため、代替とし�
   $("bstart").onclick = async () => {
     $("bstart").disabled = true;
     try {
-      recognizer = new model.KaldiRecognizer(16000);
+      // 設定を変えて押し直せるよう、前回の分を片付ける。
+      cancelAnimationFrame(meterRaf);
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      if (ctx) await ctx.close();
+
+      // 文法を限定すると認識対象が絞られ、当たりやすくなる。
+      if ($("usegrammar").checked) {
+        const phrases = $("grammar").value.split("\n")
+          .map((l) => l.trim()).filter(Boolean);
+        if (!phrases.includes("[unk]")) {
+          log("[unk] が無いと無関係な音まで誤検出する。追加した。", "warn");
+          phrases.push("[unk]");
+        }
+        log("文法限定モード: " + phrases.length + "語句");
+        recognizer = new model.KaldiRecognizer(16000, JSON.stringify(phrases));
+      } else {
+        log("全文認識モード");
+        recognizer = new model.KaldiRecognizer(16000);
+      }
       recognizer.on("partialresult", (m) => {
         const t = m.result.partial;
         if (t) { $("partial").textContent = t; check(t, false); }
@@ -173,11 +242,20 @@ Picovoice の無料枠が2026年6月末で廃止されたため、代替とし�
         log("確定: " + t, hit ? "ok" : null);
       });
 
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
+      const constraints = {
+        echoCancellation: $("aec").checked,
+        noiseSuppression: $("ns").checked,
+        autoGainControl: $("agc").checked,
+      };
+      log("マイク制約: " + JSON.stringify(constraints));
+      stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+      const track = stream.getAudioTracks()[0];
+      log("実際に適用: " + JSON.stringify(track.getSettings()));
 
-      // 16kHz を直接要求する。通らなければ実レートを見て判断する。
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const mics = devices.filter((d) => d.kind === "audioinput");
+      log(`音声入力デバイス ${mics.length}件: ` + mics.map((d) => d.label || "(名前なし)").join(" / "));
+
       ctx = new AudioContext({ sampleRate: 16000 });
       if (ctx.state === "suspended") await ctx.resume();
       const rate = ctx.sampleRate;
@@ -187,7 +265,28 @@ Picovoice の無料枠が2026年6月末で廃止されたため、代替とし�
       log("AudioContext sampleRate = " + rate, rate === 16000 ? "ok" : "warn");
 
       const src = ctx.createMediaStreamSource(stream);
-      // ScriptProcessor は非推奨だが、AudioBuffer をそのまま渡せるので検証には都合が良い。
+
+      // Vosk へ渡す前に増幅する。遠くの声を届かせるための最初の一手。
+      gainNode = ctx.createGain();
+      gainNode.gain.value = Number($("gain").value);
+      src.connect(gainNode);
+
+      // 入力レベルの可視化。距離による差を見るため。
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      gainNode.connect(analyser);
+      const buf = new Float32Array(analyser.fftSize);
+      (function meter() {
+        analyser.getFloatTimeDomainData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+        const rms = Math.sqrt(sum / buf.length);
+        const db = rms <= 1e-7 ? -100 : Math.max(-100, 20 * Math.log10(rms));
+        $("s-level").textContent = db.toFixed(1) + " dBFS";
+        $("lvlbar").style.width = Math.max(0, Math.min(100, (db + 70) * (100 / 70))) + "%";
+        meterRaf = requestAnimationFrame(meter);
+      })();
+
       const node = ctx.createScriptProcessor(4096, 1, 1);
       node.onaudioprocess = (e) => {
         const t0 = performance.now();
@@ -203,11 +302,12 @@ Picovoice の無料枠が2026年6月末で廃止されたため、代替とし�
           procTime = audioTime = 0;
         }
       };
-      src.connect(node);
+      gainNode.connect(node);
       node.connect(ctx.destination);
-      log("認識開始。「ねえAI」と話しかけてください。", "ok");
+      log("認識開始。口元と、離れた位置の両方で試すこと。", "ok");
     } catch (e) {
       log("開始失敗: " + e.name + " — " + e.message, "ng");
+    } finally {
       $("bstart").disabled = false;
     }
   };
