@@ -386,7 +386,17 @@ body {
   border-radius: 999px;
 }
 .wx-icon { font-size: 24px; line-height: 1; }
-.wx-temp { font: 600 24px/1 ui-monospace, Menlo, monospace; }
+/* 最高を明るく、最低を落として、どちらか一目で分かるようにする。 */
+.wx-range {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  font: 24px/1 ui-monospace, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.wx-range b { font-weight: 600; color: #f2f2f4; }
+.wx-slash { color: #3a3a44; }
+.wx-low { font-size: 19px; color: var(--dim); }
 .wx-note { font-size: 13px; color: var(--dim); }
 
 .ambient-timers {
