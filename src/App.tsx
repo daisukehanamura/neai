@@ -5,6 +5,7 @@ import { MODEL_URL, modelAvailable } from "./wakeword/config";
 import SettingsPanel from "./SettingsPanel";
 import { loadSettings, saveSettings, wakeWordOf, type Settings } from "./settings";
 import { apiFetch, pickUpKeyFromUrl } from "./auth";
+import { addSpend, readSpend, resetSpend, type Spend } from "./usage";
 // 型だけの参照。verbatimModuleSyntax によりビルド時に消えるため、
 // Porcupine 本体は初期バンドルに入らない。
 import type { WakeWordDetector } from "./wakeword";
@@ -74,6 +75,9 @@ export default function App() {
   /** 天気を最後に取得した時刻。復帰時に取り直すか判断するのに使う。 */
   const weatherAtRef = useRef(0);
   const [showLog, setShowLog] = useState(false);
+  const [spend, setSpend] = useState<Spend>(() => readSpend());
+  /** 直前に見た会話費用。差分だけを積み上げるために持つ。 */
+  const prevCostRef = useRef(0);
   const [answer, setAnswer] = useState("");
   const [answerDone, setAnswerDone] = useState(false);
   const [keepLeft, setKeepLeft] = useState(0);
@@ -124,6 +128,7 @@ export default function App() {
     detectorRef.current?.pause();
     setMode("会話中");
     setIdleLeft(settingsRef.current.idleSec);
+    prevCostRef.current = 0;
 
     const session = new RealtimeSession({
       onPhase: (p, d) => {
@@ -140,7 +145,16 @@ export default function App() {
           }
         }
       },
-      onMetrics: setMetrics,
+      onMetrics: (m) => {
+        setMetrics(m);
+        // 会話の費用は積み上がった値で来る。前回との差だけを記録する。
+        // 新しいセッションでは 0 に戻るので、その場合は全額を差分とみなす。
+        const delta = m.costUsd >= prevCostRef.current
+          ? m.costUsd - prevCostRef.current
+          : m.costUsd;
+        prevCostRef.current = m.costUsd;
+        if (delta > 0) setSpend(addSpend(delta));
+      },
       onIdle: setIdleLeft,
       onLog: log,
       onTool: (name, args) =>
@@ -154,6 +168,7 @@ export default function App() {
           location: settingsRef.current.location,
           log,
           speakWhileWaiting: (t) => speak(t),
+          onSpend: (usd) => setSpend(addSpend(usd)),
         }),
       onAnswer: (text, done) => {
         // 空文字は新しい問いかけの合図。前の回答を消す。
@@ -590,6 +605,8 @@ export default function App() {
 
       {showSettings && (
         <SettingsPanel
+          spend={spend}
+          onResetSpend={() => setSpend(resetSpend())}
           value={settings}
           onChange={applySettings}
           onClose={() => setShowSettings(false)}

@@ -4,8 +4,15 @@ import {
   type Settings as S,
 } from "./settings";
 import { maskedKey, setDeviceKey } from "./auth";
+import type { Spend } from "./usage";
+
+/** 費用を円で見せるための換算レート。正確な請求額ではない。 */
+const USD_TO_JPY = 150;
 
 interface Props {
+  /** この端末が使った額。OpenAI に残高を取る API が無いため自前で集計している。 */
+  spend: Spend;
+  onResetSpend: () => void;
   value: S;
   onChange: (next: S) => void;
   onClose: () => void;
@@ -13,7 +20,9 @@ interface Props {
   onRestartNeeded: () => void;
 }
 
-export default function Settings({ value, onChange, onClose, onRestartNeeded }: Props) {
+export default function Settings({
+  spend, onResetSpend, value, onChange, onClose, onRestartNeeded,
+}: Props) {
   const [dirty, setDirty] = useState(false);
   const [geo, setGeo] = useState("");
   const [keyInput, setKeyInput] = useState("");
@@ -32,6 +41,30 @@ export default function Settings({ value, onChange, onClose, onRestartNeeded }: 
       </header>
 
       <div className="sheet-body">
+        <section>
+          <h3>使った額</h3>
+          <p className="hint">
+            この端末が使った分を、OpenAI が返す実測トークン数から積み上げている。
+            <b>OpenAI には残高を取る API が無い</b>ため、残高そのものは出せない。
+            正確な請求額は platform.openai.com の Usage を見ること。
+          </p>
+          <dl className="spend">
+            <div>
+              <dt>今日</dt>
+              <dd>¥{(spend.todayUsd * USD_TO_JPY).toFixed(1)}</dd>
+            </div>
+            <div>
+              <dt>今月</dt>
+              <dd>¥{(spend.monthUsd * USD_TO_JPY).toFixed(0)}</dd>
+            </div>
+            <div>
+              <dt>累計</dt>
+              <dd>¥{(spend.totalUsd * USD_TO_JPY).toFixed(0)}</dd>
+            </div>
+          </dl>
+          <button className="reset" onClick={onResetSpend}>記録を消す</button>
+        </section>
+
         <section>
           <h3>ウェイクワード</h3>
           <p className="hint">

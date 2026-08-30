@@ -14,6 +14,9 @@
 /** 要約に使うモデル。安く速いものでよい。読み上げるのは Realtime 側。 */
 const MODEL = "gpt-5.6-luna";
 
+/** 費用の見積もりに使う単価。2026-08-30 時点。モデルを変えたらここも直す。 */
+const PRICE = { searchCall: 0.01, inPerMtok: 0.2, outPerMtok: 1.2 };
+
 const INSTRUCTIONS = [
   "日本語で、事実だけを簡潔に答えてください。",
   "音声で読み上げられるので、次を必ず守ってください。",
@@ -68,9 +71,14 @@ export async function searchWeb(query: string, apiKey: string): Promise<unknown>
     .join(" ");
 
   if (!text) return { error: "検索結果を読み取れませんでした" };
+
+  const inTok = data.usage?.input_tokens ?? 0;
+  const outTok = data.usage?.output_tokens ?? 0;
   return {
     結果: forSpeech(text),
-    // 何トークン使ったかを残す。費用の見当をつけるため。
-    使用トークン: data.usage?.input_tokens,
+    // 端末側で使用額を積み上げるために返す。読み上げには使わせない。
+    _費用ドル:
+      PRICE.searchCall +
+      (inTok * PRICE.inPerMtok + outTok * PRICE.outPerMtok) / 1_000_000,
   };
 }

@@ -28,6 +28,8 @@ export interface ToolContext {
   log: (message: string, kind?: "ok" | "ng" | "warn") => void;
   /** 時間のかかる処理の間、端末の音声で場をつなぐ。 */
   speakWhileWaiting?: (text: string) => void;
+  /** Worker 側で使った分を端末の集計に足す。 */
+  onSpend?: (usd: number) => void;
 }
 
 export async function runTool(
@@ -101,7 +103,11 @@ export async function runTool(
       ctx.speakWhileWaiting?.("調べています");
       const res = await apiFetch(`/api/tools/search?q=${encodeURIComponent(query)}`);
       if (!res.ok) return { output: { error: `検索に失敗しました (${res.status})` } };
-      return { output: await res.json() };
+      const data = (await res.json()) as Record<string, unknown> & { _費用ドル?: number };
+      // 費用は端末側の集計に回し、AI には渡さない（読み上げてしまうため）。
+      const { _費用ドル, ...forModel } = data;
+      if (typeof _費用ドル === "number") ctx.onSpend?.(_費用ドル);
+      return { output: forModel };
     }
 
     case "set_timer": {
