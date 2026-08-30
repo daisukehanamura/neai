@@ -7,7 +7,9 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "proxy": "node scripts/dev-proxy.mjs",
-    "deploy": "npm run build && wrangler deploy"
+    "deploy": "npm run build && wrangler deploy",
+    "model": "./scripts/fetch-vosk-model.sh",
+    "newkey": "./scripts/new-device-key.sh"
   },
   "dependencies": {
     "@picovoice/porcupine-web": "^4.0.1",

@@ -73,17 +73,23 @@ HTTPS が要るのは、**iOS Safari が `getUserMedia` と Wake Lock を
 
 ## デプロイ
 
+手順は [docs/deploy.md](docs/deploy.md)。要点だけ。
+
 ```bash
+npx wrangler login
+npm run model                            # モデルを25MiB未満に分割
+npm run newkey                           # デバイスキーを作る
 npx wrangler secret put OPENAI_API_KEY
-npx wrangler secret put DEVICE_KEY     # 公開するなら必須
+npx wrangler secret put DEVICE_KEY
 npm run deploy
 ```
 
 **`DEVICE_KEY` を設定せずに公開しないこと。** 誰でもあなたの課金で AI と会話できてしまう。
 
-> **未解決:** Vosk のモデル（48MB）は Cloudflare Workers の静的アセット上限（25MB）を
-> 超えるため、そのままではデプロイできない。R2 等に置いて
-> `VITE_WAKEWORD_MODEL` で差し替える必要がある。
+初回だけ iPhone で `https://<host>/#k=<キー>` を開けば端末に保存される。
+
+**Cloudflare の費用はゼロ**（無料プラン、カード不要）。
+ローカル開発の手順は変わらない。
 
 ## 常設運用のメモ
 

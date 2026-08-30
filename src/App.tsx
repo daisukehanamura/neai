@@ -4,6 +4,7 @@ import { MediaController, type Facing, type Frame } from "./media";
 import { MODEL_URL, modelAvailable } from "./wakeword/config";
 import SettingsPanel from "./SettingsPanel";
 import { loadSettings, saveSettings, wakeWordOf, type Settings } from "./settings";
+import { getDeviceKey, pickUpKeyFromUrl } from "./auth";
 // 型だけの参照。verbatimModuleSyntax によりビルド時に消えるため、
 // Porcupine 本体は初期バンドルに入らない。
 import type { WakeWordDetector } from "./wakeword";
@@ -78,6 +79,17 @@ export default function App() {
   const detectorRef = useRef<WakeWordDetector | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
+  // 初回に #k=... で渡されたキーを取り込む。取り込んだら URL からは消す。
+  useEffect(() => {
+    if (pickUpKeyFromUrl()) {
+      // log はこの時点でまだ使えないので、状態にだけ反映する。
+      setEntries((prev) => [
+        ...prev,
+        { time: new Date().toTimeString().slice(0, 8), message: "デバイスキーを保存しました", kind: "ok" },
+      ]);
+    }
+  }, []);
+
   const log = useCallback((message: string, kind?: Entry["kind"]) => {
     const time = new Date().toTimeString().slice(0, 8);
     setEntries((prev) => [...prev.slice(-80), { time, message, kind }]);
@@ -137,7 +149,7 @@ export default function App() {
           },
           timers: timersRef.current!,
           location: settingsRef.current.location,
-          deviceKey: localStorage.getItem("neai_device_key") ?? undefined,
+          deviceKey: getDeviceKey(),
           log,
         }),
       onAnswer: (text, done) => {
@@ -156,7 +168,7 @@ export default function App() {
     }, {
       idleSec: settingsRef.current.idleSec,
       model: settingsRef.current.model,
-      deviceKey: localStorage.getItem("neai_device_key") ?? undefined,
+      deviceKey: getDeviceKey(),
     });
     sessionRef.current = session;
     await session.start(stream);
@@ -177,7 +189,7 @@ export default function App() {
       return;
     }
 
-    if (!(await modelAvailable(MODEL_URL))) {
+    if (!(await modelAvailable())) {
       log("ウェイクワードのモデルが無いのでタップ開始で動きます", "warn");
       log("有効にするには ./scripts/fetch-vosk-model.sh を実行してください");
       setMode("タップ待ち");

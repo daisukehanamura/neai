@@ -3,6 +3,7 @@ import {
   DEFAULTS, MODELS, WAKE_PRESETS,
   type Settings as S,
 } from "./settings";
+import { maskedKey, setDeviceKey } from "./auth";
 
 interface Props {
   value: S;
@@ -15,6 +16,8 @@ interface Props {
 export default function Settings({ value, onChange, onClose, onRestartNeeded }: Props) {
   const [dirty, setDirty] = useState(false);
   const [geo, setGeo] = useState("");
+  const [keyInput, setKeyInput] = useState("");
+  const [keyLabel, setKeyLabel] = useState(() => maskedKey());
 
   const set = <K extends keyof S>(key: K, v: S[K], needsRestart = false) => {
     onChange({ ...value, [key]: v });
@@ -199,6 +202,43 @@ export default function Settings({ value, onChange, onClose, onRestartNeeded }: 
               onChange={(e) => set("keepSec", Number(e.target.value))}
             />
           </label>
+        </section>
+
+        <section>
+          <h3>デバイスキー</h3>
+          <p className="hint">
+            公開した端末を自分だけが使えるようにするためのもの。
+            <b>ローカル開発では不要で、設定しなくても動く。</b>
+            本番では初回に <code>#k=キー</code> 付きの URL で開けば自動で保存される。
+          </p>
+          <div className="place">
+            <span>{keyLabel}</span>
+          </div>
+          <input
+            type="password"
+            placeholder="手で入れる場合はここに貼り付け"
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            autoComplete="off"
+          />
+          <div className="row">
+            <button
+              onClick={() => {
+                setDeviceKey(keyInput.trim());
+                setKeyLabel(maskedKey());
+                setKeyInput("");
+              }}
+              disabled={!keyInput.trim()}
+            >
+              保存
+            </button>
+            <button
+              className="reset"
+              onClick={() => { setDeviceKey(""); setKeyLabel(maskedKey()); }}
+            >
+              消す
+            </button>
+          </div>
         </section>
 
         <button className="reset" onClick={() => { onChange({ ...DEFAULTS }); setDirty(true); }}>

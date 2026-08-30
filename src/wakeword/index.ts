@@ -10,7 +10,7 @@
  *
  * Vosk は全文認識なので、将来ローカルコマンド層（タイマー等）にも使い回せる。
  */
-import type { WakeWordConfig } from "./config";
+import { loadModelUrl, type WakeWordConfig } from "./config";
 
 type Recognizer = {
   on: (event: string, handler: (m: { result: { text?: string; partial?: string } }) => void) => void;
@@ -75,7 +75,17 @@ export class WakeWordDetector {
 
     this.onLog("ウェイクワードのモデルを読み込み中（初回のみ48MB）…");
     const t0 = performance.now();
-    this.model = (await Vosk.createModel(this.config.modelUrl)) as unknown as VoskModel;
+    // 25MiB 上限のため分割して置いてある。取得して連結してから渡す。
+    let lastShown = 0;
+    const url = await loadModelUrl((ratio) => {
+      const pct = Math.round(ratio * 100);
+      if (pct - lastShown >= 25) {
+        lastShown = pct;
+        this.onLog(`モデル取得 ${pct}%`);
+      }
+    });
+    this.model = (await Vosk.createModel(url)) as unknown as VoskModel;
+    if (url.startsWith("blob:")) URL.revokeObjectURL(url);
     this.onLog(`モデル読み込み完了 ${Math.round(performance.now() - t0)}ms`, "ok");
 
     // 認識対象を絞ると精度が上がり、CPU も下がる。

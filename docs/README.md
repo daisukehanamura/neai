@@ -7,6 +7,7 @@
 | [ios-constraints.md](ios-constraints.md) | iOS 実機で判明した制約。コードの形の理由がここにある |
 | [decisions.md](decisions.md) | 何をなぜ選んだか。**捨てた案と反証された仮説も残してある** |
 | [cost.md](cost.md) | 料金の考え方と実測値、費用が暴走しないための仕組み |
+| [deploy.md](deploy.md) | Cloudflare へ公開する手順。費用と、残っている宿題 |
 | [roadmap.md](roadmap.md) | 段階ごとの進捗と、残っていること |
 | [requirements-memo.txt](requirements-memo.txt) | 出発点になったメモ。**現状とは食い違う箇所がある**（履歴として保存） |
 
