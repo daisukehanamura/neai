@@ -83,6 +83,12 @@ export class RealtimeSession {
   private spokeAt = 0;
   /** AI の発話テキスト。利用者の次の発話開始で区切る。 */
   private answer = "";
+  /**
+   * 機能の実行中かどうか。
+   * この間はマイクを止める。端末が読み上げる「調べています」や物音を
+   * 利用者の発話として拾ってしまい、待ちの表示が消えるため。
+   */
+  private toolRunning = false;
   private energyBaseline = 0;
   private pollTimer: number | null = null;
 
@@ -240,7 +246,10 @@ export class RealtimeSession {
 
   private handleEvent(event: { type: string; [k: string]: unknown }): void {
     switch (event.type) {
+      // 機能の実行中は発話の検出を無視する。
+      // マイクは止めているが、止める直前に送った音で発火することがある。
       case "input_audio_buffer.speech_started":
+        if (this.toolRunning) break;
         this.touch();
         // 新しい問いかけが始まった。前の回答の表示はここで区切る。
         this.answer = "";
@@ -249,6 +258,7 @@ export class RealtimeSession {
         break;
 
       case "input_audio_buffer.speech_stopped":
+        if (this.toolRunning) break;
         this.touch();
         this.spokeAt = performance.now();
         void this.captureEnergyBaseline();
@@ -303,6 +313,9 @@ export class RealtimeSession {
    */
   private async runTool(name: string, callId: string, rawArgs?: string): Promise<void> {
     this.touch();
+    // 実行中は聞くのをやめる。自分の音や周りの音で状態が乱れないようにする。
+    this.toolRunning = true;
+    this.setMicEnabled(false);
     let args: Record<string, unknown> = {};
     try {
       args = JSON.parse(rawArgs ?? "{}") as Record<string, unknown>;
@@ -329,6 +342,13 @@ export class RealtimeSession {
         },
       });
     }
+
+    // 実行中に溜まった音は捨ててから聞き直す。
+    // 端末の読み上げや物音がそのまま次の発話として扱われないようにする。
+    this.send({ type: "input_audio_buffer.clear" });
+    this.toolRunning = false;
+    this.setMicEnabled(true);
+
     this.replyToTool(callId, result.output);
   }
 
@@ -357,12 +377,20 @@ export class RealtimeSession {
    */
   interrupt(): void {
     if (this.dc?.readyState !== "open") return;
+    this.toolRunning = false;
+    this.setMicEnabled(true);
     this.send({ type: "response.cancel" });
     this.send({ type: "output_audio_buffer.clear" });
     this.send({ type: "input_audio_buffer.clear" });
     this.touch();
     this.cb.onLog("発話を止めました", "warn");
     this.cb.onPhase("ready");
+  }
+
+  /** マイクの送信を止める/戻す。トラック自体は生かしたままにする。 */
+  private setMicEnabled(on: boolean): void {
+    const track = this.stream?.getAudioTracks()[0];
+    if (track) track.enabled = on;
   }
 
   private send(event: unknown): void {
@@ -377,6 +405,7 @@ export class RealtimeSession {
     if (this.pollTimer !== null) window.clearInterval(this.pollTimer);
     if (this.idleTimer !== null) window.clearInterval(this.idleTimer);
     this.pollTimer = this.idleTimer = null;
+    this.setMicEnabled(true);
     this.dc?.close();
     this.pc?.close();
     this.audioEl?.remove();

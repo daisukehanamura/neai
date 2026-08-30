@@ -530,6 +530,8 @@ export default function App() {
                 </span>
                 <span className="busy-label">{busy.label}</span>
                 {busySec >= 2 && <span className="busy-sec">{busySec}秒</span>}
+                {/* 聞いていないことを明示する。話しかけても届かないため。 */}
+                <span className="busy-mic">マイクは止めています</span>
               </div>
             ) : answer ? (
               <>
@@ -610,7 +612,7 @@ export default function App() {
             onClick={() => sessionRef.current?.interrupt()}
             disabled={phase !== "speaking" && phase !== "thinking"}
           >
-            発話を止める
+            止める
           </button>
           <button className="action secondary" onClick={endConversation}>
             会話を終える
