@@ -587,3 +587,12 @@ body {
 /* 読み終えた回答は触れば閉じられる。押せることが分かるようにしておく。 */
 .answer.tappable { cursor: pointer; }
 .answer.tappable:active { background: #101016; }
+
+/* 待っている間はマイクを止めている。話しかけても届かないので明示する。 */
+.busy-mic {
+  padding: 5px 12px;
+  border: 1px solid #3a3a44;
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: var(--dim);
+}
