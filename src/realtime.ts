@@ -8,6 +8,7 @@
  */
 
 import { addUsage, costUsd, emptyUsage, type Usage } from "./pricing";
+import type { Frame } from "./media";
 
 export type Phase = "idle" | "connecting" | "ready" | "listening" | "thinking" | "speaking" | "error";
 
@@ -36,6 +37,8 @@ export interface Callbacks {
   onMetrics: (metrics: Metrics) => void;
   onIdle: (secondsLeft: number) => void;
   onLog: (message: string, kind?: "ok" | "ng" | "warn") => void;
+  /** AI が look_at_camera を呼んだときに1枚撮る。 */
+  onCapture: () => Frame | null;
 }
 
 export class RealtimeSession {
@@ -227,12 +230,77 @@ export class RealtimeSession {
         break;
       }
 
+      // AI がツールを呼んだ。引数が出揃った時点で実行する。
+      case "response.function_call_arguments.done": {
+        const call = event as unknown as { name: string; call_id: string };
+        if (call.name === "look_at_camera") this.handleLookAtCamera(call.call_id);
+        else this.replyToTool(call.call_id, { error: `未知のツール: ${call.name}` });
+        break;
+      }
+
       case "error": {
         const detail = JSON.stringify(event.error ?? event);
         this.cb.onLog(`Realtime エラー: ${detail}`, "ng");
         break;
       }
     }
+  }
+
+  /**
+   * カメラを1枚撮って会話へ画像として差し込む。
+   *
+   * 映像は WebRTC に載せていないので、常時の帯域も課金も使わない。
+   * 撮るのは呼ばれたときだけ。
+   */
+  private handleLookAtCamera(callId: string): void {
+    this.touch();
+    this.cb.onPhase("thinking", "カメラを確認しています");
+
+    const frame = this.cb.onCapture();
+    if (!frame) {
+      this.cb.onLog("フレームを取得できなかった", "ng");
+      this.replyToTool(callId, { error: "カメラの映像を取得できませんでした" });
+      return;
+    }
+    this.cb.onLog(
+      `撮影 ${frame.width}x${frame.height} / ${Math.round(frame.bytes / 1024)}KB / ${frame.ms}ms`,
+      "ok",
+    );
+
+    // 画像を利用者の発言として会話に足す。
+    this.send({
+      type: "conversation.item.create",
+      item: {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_image", image_url: frame.dataUrl }],
+      },
+    });
+    this.replyToTool(callId, { ok: true, note: "現在のカメラ映像を追加しました" });
+  }
+
+  /** ツールの実行結果を返し、続きの応答を生成させる。 */
+  private replyToTool(callId: string, output: unknown): void {
+    this.send({
+      type: "conversation.item.create",
+      item: {
+        type: "function_call_output",
+        call_id: callId,
+        output: JSON.stringify(output),
+      },
+    });
+    // 画像を見てからの回答なので、ここから再びレイテンシを測る。
+    this.spokeAt = performance.now();
+    void this.captureEnergyBaseline();
+    this.send({ type: "response.create" });
+  }
+
+  private send(event: unknown): void {
+    if (this.dc?.readyState !== "open") {
+      this.cb.onLog("データチャネルが開いていない", "ng");
+      return;
+    }
+    this.dc.send(JSON.stringify(event));
   }
 
   stop(): void {

@@ -35,9 +35,31 @@ const INSTRUCTIONS = `# 役割と目的
 - 音声が不明瞭なときは、推測で答えないでください。
 - 日本語で短く聞き返してください。
 
+# カメラ
+- 利用者が目の前のものについて尋ねたときは、look_at_camera を呼んでください。
+- 「これ何」「この文字」「この画面」「この料理」「賞味期限」など、
+  目の前のものを指していると判断できる場合が対象です。
+- 呼ぶと現在の映像が1枚渡されます。それを見て答えてください。
+- 呼ぶ前に「見てみますね」などと言う必要はありません。黙って呼んでください。
+- 画像が不鮮明で判断できないときは、そう伝えて置き直すよう頼んでください。
+
 # 知らないことへの対応
 - 現在の日時、天気、利用者の予定など、あなたが知り得ない情報は推測しないでください。
-- 「わかりません」と正直に答えてください。`;
+- 「わかりません」と正直に答えてください。
+- ただし目の前のものについては look_at_camera で確かめられます。推測せずに呼んでください。`;
+
+/** AI から呼べる機能。クライアント側で実行するものと Worker 側で実行するものがある。 */
+const TOOLS = [
+  {
+    type: "function",
+    name: "look_at_camera",
+    description:
+      "端末のカメラで今映っているものを1枚撮影し、画像として会話に追加する。" +
+      "利用者が目の前のものについて尋ねたとき（これ何、この文字、この画面、" +
+      "この料理、賞味期限など）に呼ぶ。撮影はブラウザ側で行われる。",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+];
 
 export function sessionConfig(env: Env) {
   return {
@@ -45,6 +67,7 @@ export function sessionConfig(env: Env) {
     model: env.REALTIME_MODEL,
     output_modalities: ["audio"],
     instructions: INSTRUCTIONS,
+    tools: TOOLS,
     audio: {
       // WebRTC では音声コーデックを WebRTC 側が決めるため format は指定しない。
       input: {

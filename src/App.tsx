@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IDLE_LIMIT_SEC, RealtimeSession, type Metrics, type Phase } from "./realtime";
-import { MediaController } from "./media";
+import { MediaController, type Facing, type Frame } from "./media";
 import { loadConfig, type WakeWordConfig } from "./wakeword/config";
 // 型だけの参照。verbatimModuleSyntax によりビルド時に消えるため、
 // Porcupine 本体は初期バンドルに入らない。
@@ -41,7 +41,10 @@ export default function App() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [wakeConfig] = useState<WakeWordConfig | null>(() => loadConfig());
 
-  const mediaRef = useRef(new MediaController());
+  // 棚に立てて画面をこちらに向けて使うため、既定は内カメラ。
+  const mediaRef = useRef(new MediaController("user"));
+  const [facing, setFacing] = useState<Facing>("user");
+  const [lastFrame, setLastFrame] = useState<Frame | null>(null);
   const sessionRef = useRef<RealtimeSession | null>(null);
   const detectorRef = useRef<WakeWordDetector | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -96,6 +99,11 @@ export default function App() {
       onMetrics: setMetrics,
       onIdle: setIdleLeft,
       onLog: log,
+      onCapture: () => {
+        const frame = mediaRef.current.captureFrame();
+        setLastFrame(frame);
+        return frame;
+      },
     });
     sessionRef.current = session;
     await session.start(stream, localStorage.getItem("neai_device_key") ?? undefined);
@@ -150,6 +158,16 @@ export default function App() {
     log("停止しました", "warn");
   };
 
+  const switchCamera = async () => {
+    try {
+      const next = await mediaRef.current.switchCamera();
+      setFacing(next);
+      log(`カメラを${next === "user" ? "内" : "外"}に切り替えた`, "ok");
+    } catch (err) {
+      log(`カメラの切り替えに失敗: ${(err as Error).message}`, "ng");
+    }
+  };
+
   const talking = mode === "会話中";
   const statusText = talking ? PHASE_LABEL[phase] : mode;
 
@@ -192,8 +210,26 @@ export default function App() {
       {mode === "タップ待ち" && (
         <button className="action" onClick={() => void openConversation()}>話しかける</button>
       )}
-      {(mode === "ウェイクワード待機" || talking) && (
-        <button className="action secondary" onClick={() => void shutdown()}>停止</button>
+      {mode !== "停止中" && mode !== "起動中" && (
+        <div className="row">
+          <button className="action secondary" onClick={() => void switchCamera()} disabled={talking}>
+            カメラ: {facing === "user" ? "内" : "外"}
+          </button>
+          <button className="action secondary" onClick={() => void shutdown()}>停止</button>
+        </div>
+      )}
+
+      {lastFrame && (
+        <section className="shot">
+          <div className="shot-head">
+            <span>AI に送った画像</span>
+            <span>
+              {lastFrame.width}x{lastFrame.height} / {Math.round(lastFrame.bytes / 1024)}KB /{" "}
+              {lastFrame.ms}ms
+            </span>
+          </div>
+          <img src={lastFrame.dataUrl} alt="直前に送信した映像" />
+        </section>
       )}
 
       <section className="log" aria-label="ログ">
