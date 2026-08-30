@@ -16,13 +16,20 @@ function icon(code?: number): string {
   return "⛈️";
 }
 
-export interface Weather {
+export interface DayForecast {
+  日付: string;
+  曜日: string;
   天気: string;
   コード?: number;
-  最高気温?: number;
-  最低気温?: number;
-  降水確率?: number;
-  現在の気温?: number;
+  最高: number | null;
+  最低: number | null;
+  降水確率: number | null;
+}
+
+export interface Weather {
+  場所: string;
+  現在?: { 気温: number | null; 天気: string; コード?: number };
+  予報: DayForecast[];
 }
 
 interface Props {
@@ -48,45 +55,69 @@ export default function Ambient({
     return () => clearInterval(id);
   }, []);
 
-  const hh = String(now.getHours()).padStart(2, "0");
-  const mm = String(now.getMinutes()).padStart(2, "0");
-
-  return (
-    <div className="ambient">
-      {ringing ? (
+  if (ringing) {
+    return (
+      <div className="ambient">
         <button className="alarm-full" onClick={onSilence}>
           <span className="alarm-title">タイマー終了</span>
           <span className="alarm-sub">タップで止める</span>
         </button>
-      ) : (
-        <>
-          <div className="clock">
-            <span className="hh">{hh}</span>
-            <span className="colon">:</span>
-            <span className="mm">{mm}</span>
-          </div>
-          <div className="date">
-            {now.getMonth() + 1}月{now.getDate()}日（{WEEK[now.getDay()]}）
-          </div>
+      </div>
+    );
+  }
 
-          {weather && (
-            <div className="weather">
-              <span className="wx-icon">{icon(weather.コード)}</span>
-              <span className="wx-temp">
-                {weather.現在の気温 != null ? `${Math.round(weather.現在の気温)}°` : ""}
-              </span>
-              <span className="wx-note">
-                {weather.天気}
-                {weather.最低気温 != null && weather.最高気温 != null &&
-                  ` ${Math.round(weather.最低気温)}/${Math.round(weather.最高気温)}°`}
-                {weather.降水確率 != null && ` 降水${weather.降水確率}%`}
-              </span>
-            </div>
-          )}
-        </>
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  const today = weather?.予報?.[0];
+
+  return (
+    <div className="ambient">
+      <div className="clock">
+        <span className="hh">{hh}</span>
+        <span className="colon">:</span>
+        <span className="mm">{mm}</span>
+      </div>
+      <div className="date">
+        {now.getMonth() + 1}月{now.getDate()}日（{WEEK[now.getDay()]}）
+      </div>
+
+      {weather?.現在 && (
+        <div className="weather">
+          <span className="wx-icon">{icon(weather.現在.コード)}</span>
+          <span className="wx-temp">
+            {weather.現在.気温 != null ? `${Math.round(weather.現在.気温)}°` : ""}
+          </span>
+          <span className="wx-note">
+            {weather.場所} {weather.現在.天気}
+            {today?.最低 != null && today?.最高 != null &&
+              ` ${Math.round(today.最低)}/${Math.round(today.最高)}°`}
+          </span>
+        </div>
       )}
 
-      {timers.length > 0 && !ringing && (
+      {/* 週間予報。7日を並べて「いつ降るか」を形で見せる。
+          気温は数字、降水確率は棒の高さ。色分けはしない（離れて見ると効かないため）。 */}
+      {weather && weather.予報.length > 1 && (
+        <div className="week" role="table" aria-label="週間予報">
+          {weather.予報.map((d, i) => (
+            <div key={d.日付} className={`day ${i === 0 ? "today" : ""}`}>
+              <span className="dow">{i === 0 ? "今日" : d.曜日}</span>
+              <span className="wicon">{icon(d.コード)}</span>
+              <span className="hi">{d.最高 != null ? Math.round(d.最高) : "—"}</span>
+              <span className="lo">{d.最低 != null ? Math.round(d.最低) : "—"}</span>
+              <span className="rainbar" title={`降水確率 ${d.降水確率 ?? 0}%`}>
+                <i style={{ height: `${Math.max(2, (d.降水確率 ?? 0) * 0.28)}px` }} />
+              </span>
+              {/* 数字は全部には付けない。傘が要る日だけ出す。 */}
+              <span className="rainpct">
+                {(d.降水確率 ?? 0) >= 50 ? `${d.降水確率}%` : ""}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {timers.length > 0 && (
         <div className="ambient-timers">
           {timers.map((t) => (
             <div key={t.id} className="ambient-timer">

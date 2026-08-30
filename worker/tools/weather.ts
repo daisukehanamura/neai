@@ -20,36 +20,46 @@ const WEATHER: Record<number, string> = {
   95: "雷雨", 96: "雹を伴う雷雨", 99: "激しい雷雨",
 };
 
-export interface WeatherArgs {
-  /** "today" | "tomorrow"。省略時は today。 */
-  day?: string;
-  latitude?: number;
-  longitude?: number;
+const WEEK = ["日", "月", "火", "水", "木", "金", "土"];
+
+export interface Place {
+  latitude: number;
+  longitude: number;
+  name: string;
 }
 
-export async function getWeather(
-  args: WeatherArgs,
-  fallback: { latitude: number; longitude: number; name: string },
-): Promise<unknown> {
-  const lat = args.latitude ?? fallback.latitude;
-  const lon = args.longitude ?? fallback.longitude;
-  const index = args.day === "tomorrow" ? 1 : 0;
+export interface DayForecast {
+  日付: string;
+  曜日: string;
+  天気: string;
+  コード?: number;
+  最高: number | null;
+  最低: number | null;
+  降水確率: number | null;
+}
 
+export interface WeatherResult {
+  場所: string;
+  現在?: { 気温: number | null; 天気: string; コード?: number };
+  予報: DayForecast[];
+}
+
+/** 7日分まとめて返す。呼び出し側が必要な日数に切る。 */
+export async function getWeather(place: Place): Promise<WeatherResult | { error: string }> {
   const url =
     "https://api.open-meteo.com/v1/forecast" +
-    `?latitude=${lat}&longitude=${lon}` +
+    `?latitude=${place.latitude}&longitude=${place.longitude}` +
     "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
     "&current=temperature_2m,weather_code" +
-    "&timezone=Asia%2FTokyo&forecast_days=2";
+    "&timezone=Asia%2FTokyo&forecast_days=7";
 
   const res = await fetch(url);
-  if (!res.ok) {
-    return { error: `天気の取得に失敗しました (${res.status})` };
-  }
+  if (!res.ok) return { error: `天気の取得に失敗しました (${res.status})` };
 
   const data = (await res.json()) as {
     current?: { temperature_2m?: number; weather_code?: number };
     daily?: {
+      time?: string[];
       weather_code?: number[];
       temperature_2m_max?: number[];
       temperature_2m_min?: number[];
@@ -58,18 +68,31 @@ export async function getWeather(
   };
 
   const d = data.daily;
-  const code = d?.weather_code?.[index];
+  const days: DayForecast[] = (d?.time ?? []).map((iso, i) => {
+    // Worker は UTC で動くため、getDate() などのローカル系メソッドを使うと
+    // 日本時間の日付が1日ずれる。UTC 正午として解釈し UTC 系で読み出す。
+    const date = new Date(`${iso}T12:00:00Z`);
+    const code = d?.weather_code?.[i];
+    return {
+      日付: `${date.getUTCMonth() + 1}月${date.getUTCDate()}日`,
+      曜日: WEEK[date.getUTCDay()],
+      天気: code !== undefined ? (WEATHER[code] ?? "不明") : "不明",
+      コード: code,
+      最高: d?.temperature_2m_max?.[i] ?? null,
+      最低: d?.temperature_2m_min?.[i] ?? null,
+      降水確率: d?.precipitation_probability_max?.[i] ?? null,
+    };
+  });
 
   return {
-    場所: fallback.name,
-    いつ: index === 1 ? "明日" : "今日",
-    天気: code !== undefined ? (WEATHER[code] ?? "不明") : "不明",
-    // 画面にアイコンを出すために生のコードも返す。読み上げには使わない。
-    コード: code,
-    最高気温: d?.temperature_2m_max?.[index],
-    最低気温: d?.temperature_2m_min?.[index],
-    降水確率: d?.precipitation_probability_max?.[index],
-    // 「今」を聞かれたときのために現在値も渡す。
-    現在の気温: index === 0 ? data.current?.temperature_2m : undefined,
+    場所: place.name,
+    現在: {
+      気温: data.current?.temperature_2m ?? null,
+      天気: data.current?.weather_code !== undefined
+        ? (WEATHER[data.current.weather_code] ?? "不明")
+        : "不明",
+      コード: data.current?.weather_code,
+    },
+    予報: days,
   };
 }

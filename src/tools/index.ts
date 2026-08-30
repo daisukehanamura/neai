@@ -62,7 +62,7 @@ export async function runTool(
     }
 
     case "get_weather": {
-      const q = new URLSearchParams({ day: String(args.day ?? "today") });
+      const q = new URLSearchParams();
       if (ctx.location.lat != null && ctx.location.lon != null) {
         q.set("lat", String(ctx.location.lat));
         q.set("lon", String(ctx.location.lon));
@@ -72,7 +72,25 @@ export async function runTool(
         headers: ctx.deviceKey ? { authorization: `Bearer ${ctx.deviceKey}` } : {},
       });
       if (!res.ok) return { output: { error: `天気の取得に失敗しました (${res.status})` } };
-      return { output: await res.json() };
+      const w = (await res.json()) as {
+        場所: string;
+        現在?: unknown;
+        予報: unknown[];
+      };
+
+      // 読み上げるので必要な日だけ渡す。7日分をそのまま渡すと長く喋りすぎる。
+      const day = String(args.day ?? "today");
+      if (day === "week") {
+        return { output: { 場所: w.場所, 週間予報: w.予報 } };
+      }
+      const index = day === "tomorrow" ? 1 : 0;
+      return {
+        output: {
+          場所: w.場所,
+          ...(index === 0 ? { 現在: w.現在 } : {}),
+          予報: w.予報[index],
+        },
+      };
     }
 
     case "set_timer": {

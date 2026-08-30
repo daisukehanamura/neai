@@ -443,3 +443,56 @@ body {
 /* 待機中は状態表示を目立たせない。時計の邪魔をしないため。 */
 .is-ambient .bar .status { color: var(--dim); font-size: 13px; font-weight: 500; }
 .is-ambient .orb { width: 26px; height: 26px; }
+
+/* ---- 週間予報 ----
+   7日を並べて「いつ降るか」を形で見せる。
+   気温は数字、降水確率は棒の高さ。色で塗り分けない（離れて見ると効かないため）。 */
+.week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  width: 100%;
+  max-width: 420px;
+  margin-top: 22px;
+}
+.week .day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 2px 6px;
+  border-radius: 8px;
+}
+.week .day.today { background: #16161c; }
+
+.week .dow { font-size: 11px; color: var(--dim); letter-spacing: .02em; }
+.week .day.today .dow { color: var(--fg); font-weight: 600; }
+.week .wicon { font-size: 17px; line-height: 1.2; }
+.week .hi {
+  font: 600 15px/1 ui-monospace, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  color: #f2f2f4;
+}
+.week .lo {
+  font: 400 12px/1 ui-monospace, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--dim);
+}
+/* 棒は下端に揃える。高さだけで量を表す。 */
+.week .rainbar {
+  display: flex;
+  align-items: flex-end;
+  height: 30px;
+  margin-top: 2px;
+}
+.week .rainbar > i {
+  display: block;
+  width: 6px;
+  border-radius: 3px 3px 0 0;
+  background: var(--accent);
+}
+.week .rainpct {
+  height: 12px;
+  font: 600 10px/12px ui-monospace, Menlo, monospace;
+  color: var(--accent);
+}
