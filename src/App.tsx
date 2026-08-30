@@ -183,6 +183,14 @@ export default function App() {
           speakWhileWaiting: (t) => speak(t),
           onSpend: (usd) => setSpend(addSpend(usd)),
         }),
+      // 読み上げ中は WebRTC のマイクを止め、端末内の認識だけで中断を受け付ける。
+      // 「ストップ」と言えば止まるが、物音では止まらない。
+      onSpeaking: (active) => {
+        const d = detectorRef.current;
+        if (!d) return;
+        if (active) d.listenForStop(() => sessionRef.current?.interrupt());
+        else d.pause();
+      },
       onAnswer: (text, done) => {
         // 読み上げが始まったら待ちの表示は用済み。
         if (text) setBusy(null);
@@ -585,6 +593,13 @@ export default function App() {
               </div>
               <img src={lastFrame.dataUrl} alt="直前に送信した映像" />
             </section>
+          )}
+
+          {/* 読み上げ中はマイクを止めている。声で止められることを知らせる。 */}
+          {talking && phase === "speaking" && (
+            <p className="speak-hint">
+              読み上げ中はマイクを止めています。<b>「ストップ」</b>と言えば止まります
+            </p>
           )}
 
           {talking && (

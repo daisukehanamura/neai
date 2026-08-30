@@ -46,6 +46,14 @@ export class WakeWordDetector {
   private recognizer: Recognizer | null = null;
   private ctx: AudioContext | null = null;
   private node: ScriptProcessorNode | null = null;
+  /**
+   * 何を聞いているか。
+   *   off  … 何もしない（会話中で、AI がまだ喋っていないとき）
+   *   wake … ウェイクワードとローカルコマンド（待機中）
+   *   stop … 中断の合図だけ（AI の読み上げ中）
+   */
+  private mode: "off" | "wake" | "stop" = "off";
+  private onStop: (() => void) | null = null;
   private listening = false;
   private lastHit = 0;
   /**
@@ -163,6 +171,17 @@ export class WakeWordDetector {
 
   private check(text: string, isFinal: boolean): void {
     if (!this.listening || !text) return;
+
+    // 読み上げ中は中断の合図だけを見る。
+    // 途中経過でも拾う。止めたいときに待たされるのは本末転倒なので。
+    if (this.mode === "stop") {
+      if (this.isStop(text)) {
+        this.onLog(`中断の合図「${text}」`, "warn");
+        this.onStop?.();
+      }
+      return;
+    }
+
     if (performance.now() - this.lastHit < COOLDOWN_MS) return;
 
     // ローカルコマンドは確定した文だけで判定する。
@@ -193,6 +212,12 @@ export class WakeWordDetector {
     }, WAKE_HOLD_MS);
   }
 
+  /** 中断の合図かどうか。判定そのものは commands 側に置いてある。 */
+  private isStop(text: string): boolean {
+    const t = text.replace(/\s+/g, "");
+    return /(ストップ|やめて|止めて|ちょっと待って)/.test(t);
+  }
+
   private cancelPendingWake(): void {
     if (this.pendingWake === null) return;
     clearTimeout(this.pendingWake);
@@ -202,11 +227,26 @@ export class WakeWordDetector {
   /** 会話中は検出を止める。AI 自身の声で誤検出しないようにするため。 */
   pause(): void {
     this.listening = false;
+    this.mode = "off";
+    this.onStop = null;
     this.cancelPendingWake();
   }
 
   resume(): void {
     this.lastHit = performance.now(); // 直後の残響で再検出しないよう間を置く
+    this.mode = "wake";
+    this.listening = true;
+  }
+
+  /**
+   * AI の読み上げ中だけ、中断の合図を聞く。
+   * WebRTC のマイクは止めているので OpenAI には何も届かないが、
+   * 端末内の認識は生きているので「ストップ」で止められる。
+   */
+  listenForStop(onStop: () => void): void {
+    this.onStop = onStop;
+    this.mode = "stop";
+    this.lastHit = 0;
     this.listening = true;
   }
 
