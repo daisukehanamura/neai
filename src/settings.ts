@@ -94,6 +94,12 @@ export interface Settings {
   model: string;
   /** 天気に使う地点。未設定なら Worker の既定地点になる。 */
   location: { lat?: number; lon?: number; name?: string };
+  /**
+   * ローカルコマンドを有効にする。
+   * 「タイマー三分」などを端末内で処理し、OpenAI に繋がない（＝課金ゼロ）。
+   * 認識対象が増えるぶんウェイクワードの精度に影響する可能性があるため、切れるようにしてある。
+   */
+  localCommands: boolean;
 }
 
 const KEY = "neai.settings.v1";
@@ -112,6 +118,7 @@ export const DEFAULTS: Settings = {
   keepSec: 90,
   model: "gpt-realtime-2.1",
   location: {},
+  localCommands: true,
 };
 
 export function loadSettings(): Settings {

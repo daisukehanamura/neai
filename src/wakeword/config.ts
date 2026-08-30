@@ -4,6 +4,7 @@ export const MODEL_URL = import.meta.env.VITE_WAKEWORD_MODEL ?? "/wakeword/vosk-
 /** 検出器に渡す設定。値そのものは src/settings.ts が持つ。 */
 export interface WakeWordConfig {
   modelUrl: string;
+  /** ウェイクワードとローカルコマンドを合わせた認識対象。 */
   grammar: string[];
   match: string[];
   label: string;

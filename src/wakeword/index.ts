@@ -25,6 +25,14 @@ type VoskModel = {
 /** 検出後にこの時間は再検出しない。1回の呼びかけで何度も起動しないため。 */
 const COOLDOWN_MS = 3000;
 
+/**
+ * ウェイクワードを聞いてから会話を開くまでの猶予。
+ * 「ねえクラピカ、タイマー三分」と続けて言われたときに、
+ * 先に会話を開いて課金してしまわないための待ち時間。
+ * ローカルコマンドが有効なときだけ使う。
+ */
+const WAKE_HOLD_MS = 700;
+
 /** バッファの音量(dBFS)。ノイズゲートの判定に使う。 */
 function rms(buffer: AudioBuffer): number {
   const ch = buffer.getChannelData(0);
@@ -40,11 +48,22 @@ export class WakeWordDetector {
   private node: ScriptProcessorNode | null = null;
   private listening = false;
   private lastHit = 0;
+  /**
+   * 起動の予約。ローカルコマンドが有効なときは少し待ってから会話を開く。
+   * 「ねえクラピカ、タイマー三分」のように続けて言われた場合に、
+   * 先に会話を開いてしまわないため。
+   */
+  private pendingWake: number | null = null;
 
   constructor(
     private config: WakeWordConfig,
     private onDetected: () => void,
     private onLog: (message: string, kind?: "ok" | "ng" | "warn") => void,
+    /**
+     * 認識結果をローカルコマンドとして処理できたら true を返す。
+     * true のときは会話を開かない（＝OpenAI に繋がず課金も発生しない）。
+     */
+    private onCommand?: (text: string) => boolean,
   ) {}
 
   /**
@@ -133,16 +152,44 @@ export class WakeWordDetector {
   private check(text: string): void {
     if (!this.listening || !text) return;
     if (performance.now() - this.lastHit < COOLDOWN_MS) return;
+
+    // ローカルコマンドを先に見る。処理できたら会話は開かない。
+    if (this.onCommand?.(text)) {
+      this.cancelPendingWake();
+      this.lastHit = performance.now();
+      return;
+    }
+
     if (!this.config.match.some((m) => text.includes(m))) return;
 
-    this.lastHit = performance.now();
-    this.onLog(`ウェイクワード検出「${text}」`, "ok");
-    this.onDetected();
+    if (!this.onCommand) {
+      // コマンド層が無いなら待つ理由がない。すぐ開く。
+      this.lastHit = performance.now();
+      this.onLog(`ウェイクワード検出「${text}」`, "ok");
+      this.onDetected();
+      return;
+    }
+
+    // 少し待って、後ろにコマンドが続かないか見る。
+    if (this.pendingWake !== null) return;
+    this.pendingWake = window.setTimeout(() => {
+      this.pendingWake = null;
+      this.lastHit = performance.now();
+      this.onLog(`ウェイクワード検出「${text}」`, "ok");
+      this.onDetected();
+    }, WAKE_HOLD_MS);
+  }
+
+  private cancelPendingWake(): void {
+    if (this.pendingWake === null) return;
+    clearTimeout(this.pendingWake);
+    this.pendingWake = null;
   }
 
   /** 会話中は検出を止める。AI 自身の声で誤検出しないようにするため。 */
   pause(): void {
     this.listening = false;
+    this.cancelPendingWake();
   }
 
   resume(): void {
@@ -156,6 +203,7 @@ export class WakeWordDetector {
 
   async stop(): Promise<void> {
     this.listening = false;
+    this.cancelPendingWake();
     if (this.node) this.node.onaudioprocess = null;
     this.node?.disconnect();
     await this.ctx?.close();

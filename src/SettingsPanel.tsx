@@ -50,6 +50,26 @@ export default function Settings({ value, onChange, onClose, onRestartNeeded }: 
         </section>
 
         <section>
+          <h3>ローカルコマンド</h3>
+          <p className="hint">
+            「タイマー三分」「今何時」などを<b>端末内で処理し、OpenAI に繋がない。</b>
+            通信も課金も発生せず、返事は端末の音声合成で返す。
+            認識対象が増えるぶん、ウェイクワードの精度に影響する可能性がある。
+          </p>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={value.localCommands}
+              onChange={(e) => set("localCommands", e.target.checked, true)}
+            />
+            <span>
+              端末内で処理する
+              <small>タイマーの設定・取消、残り時間、時刻</small>
+            </span>
+          </label>
+        </section>
+
+        <section>
           <h3>マイクの効き</h3>
           <p className="hint">
             遠くから届かないときに調整する。まずコンプレッサを試し、

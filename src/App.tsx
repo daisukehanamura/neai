@@ -10,6 +10,7 @@ import type { WakeWordDetector } from "./wakeword";
 import { emptyUsage } from "./pricing";
 import { runTool } from "./tools";
 import { TimerStore, remaining, type Timer } from "./tools/timer";
+import { commandGrammar, matchCommand, speak } from "./tools/commands";
 
 
 /** 費用の目安を円で見せるための換算レート。正確な請求額ではない。 */
@@ -178,10 +179,15 @@ export default function App() {
       const { WakeWordDetector } = await import("./wakeword");
       const s = settingsRef.current;
       const w = wakeWordOf(s);
+      // ローカルコマンドを有効にすると認識対象が増える。
+      // その代わり「タイマー三分」等を OpenAI に繋がず処理できる。
+      const grammar = s.localCommands
+        ? [...w.grammar.filter((g) => g !== "[unk]"), ...commandGrammar(), "[unk]"]
+        : w.grammar;
       const detector = new WakeWordDetector(
         {
           modelUrl: MODEL_URL,
-          grammar: w.grammar,
+          grammar,
           match: w.match,
           label: w.label,
           gain: s.gain,
@@ -192,6 +198,7 @@ export default function App() {
         },
         () => void openConversation(),
         log,
+        s.localCommands ? handleLocalCommand : undefined,
       );
       await detector.start(mediaRef.current.audioTrack!);
       detectorRef.current = detector;
@@ -215,6 +222,41 @@ export default function App() {
     setPhase("idle");
     log("停止しました", "warn");
   };
+
+  /**
+   * ウェイクワード用に常時動いている認識結果を、コマンドとしても照合する。
+   * 処理できたら true を返し、会話を開かない。**OpenAI に繋がないので課金ゼロ。**
+   * 返事も端末内の音声合成で返す。
+   */
+  const handleLocalCommand = useCallback((text: string): boolean => {
+    const store = timersRef.current;
+    if (!store) return false;
+
+    const cmd = matchCommand(text, {
+      ringing: store.ringing,
+      timers: store.list().map((t) => ({ label: t.label, left: remaining(t) })),
+    });
+    if (!cmd) return false;
+
+    log(`ローカル処理「${text}」→ ${cmd.tool}（通信なし・課金ゼロ）`, "ok");
+
+    if (cmd.tool === "set_timer") {
+      store.add(Number(cmd.args.seconds));
+    } else if (cmd.tool === "cancel_timer") {
+      store.cancel();
+      setRinging(false);
+    }
+
+    setAnswer(cmd.speech);
+    setAnswerDone(true);
+    setKeepLeft(settingsRef.current.keepSec);
+
+    // 自分の声で再検出しないよう、読み上げ中は検出を止める。
+    detectorRef.current?.pause();
+    if (!speak(cmd.speech)) log("音声合成が使えないため画面表示のみ", "warn");
+    setTimeout(() => detectorRef.current?.resume(), 2500);
+    return true;
+  }, [log]);
 
   // タイマーは会話とは独立して動く。LLM もネットワークも通さない。
   useEffect(() => {
