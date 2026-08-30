@@ -6,6 +6,10 @@ export interface Env {
   REALTIME_MODEL: string;
   /** 設定されている場合のみ Bearer 認証を要求する。第5段階で必須にする。 */
   DEVICE_KEY?: string;
+  /** 天気の既定地点。端末側で現在地を設定すればそちらが優先される。 */
+  HOME_LAT?: string;
+  HOME_LON?: string;
+  HOME_NAME?: string;
   ASSETS: { fetch: (request: Request) => Promise<Response> };
 }
 
@@ -58,11 +62,24 @@ const INSTRUCTIONS = `# 役割と目的
 呼ぶときは黙って呼んでください。「見てみますね」などの前置きは不要です。
 画像が不鮮明で判断できないときは、そう伝えて置き直すよう頼んでください。
 
+# 時刻・天気・タイマー
+- 現在時刻を聞かれたら get_current_time を呼んでください。あなたは時刻を知りません。
+- 天気を聞かれたら get_weather を呼んでください。あなたは天気を知りません。
+- 「三分測って」のように言われたら set_timer を呼んでください。秒に直して渡します。
+- 「あと何分」と聞かれたら list_timers を呼んでください。
+- タイマーが鳴っていて「止めて」と言われたら cancel_timer を呼んでください。
+- タイマーを設定したら「三分ですね」と短く確認するだけにしてください。
+
 # 知らないことへの対応
-- 現在の日時、天気、利用者の予定など、あなたが知り得ない情報は推測しないでください。
+- 上記の道具で調べられないことは推測しないでください。
 - 「わかりません」と正直に答えてください。カメラで代用しようとしないでください。`;
 
-/** AI から呼べる機能。クライアント側で実行するものと Worker 側で実行するものがある。 */
+/**
+ * AI から呼べる機能。
+ * 実行場所は2種類ある。
+ *   クライアント側 … 時刻・タイマー・カメラ。端末内で完結し、外部通信をしない
+ *   Worker 側     … 天気。外部APIを叩くものはこちらに置く
+ */
 const TOOLS = [
   {
     type: "function",
@@ -86,6 +103,68 @@ const TOOLS = [
         },
       },
       required: ["target"],
+    },
+  },
+  {
+    type: "function",
+    name: "get_current_time",
+    description:
+      "現在の日付と時刻を取得する。あなたは現在時刻を知らないので、" +
+      "「今何時」「今日は何日」「何曜日」と聞かれたら必ずこれを呼ぶこと。推測しない。",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    type: "function",
+    name: "get_weather",
+    description:
+      "天気予報を取得する。あなたは天気を知らないので、" +
+      "天気を聞かれたら必ずこれを呼ぶこと。推測しない。",
+    parameters: {
+      type: "object",
+      properties: {
+        day: {
+          type: "string",
+          enum: ["today", "tomorrow"],
+          description: "今日なら today、明日なら tomorrow。省略時は today。",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    type: "function",
+    name: "set_timer",
+    description:
+      "タイマーを設定する。「3分測って」「10分後に教えて」などで呼ぶ。" +
+      "設定すると端末が時間を数え、終わると音で知らせる。",
+    parameters: {
+      type: "object",
+      properties: {
+        seconds: { type: "number", description: "何秒後か。3分なら180。" },
+        label: { type: "string", description: "何のタイマーか。例:「パスタ」" },
+      },
+      required: ["seconds"],
+    },
+  },
+  {
+    type: "function",
+    name: "list_timers",
+    description:
+      "動いているタイマーの残り時間を調べる。「あと何分」「タイマーどうなってる」などで呼ぶ。",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    type: "function",
+    name: "cancel_timer",
+    description:
+      "タイマーを取り消す、または鳴っているアラームを止める。" +
+      "「タイマー止めて」「うるさい」「止めて」などで呼ぶ。",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "取り消す対象。省略すると全部止める。" },
+      },
+      required: [],
     },
   },
 ];

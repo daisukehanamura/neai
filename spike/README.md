@@ -1,5 +1,7 @@
 # 実機検証ページ
 
+検証で分かったことは [docs/ios-constraints.md](../docs/ios-constraints.md) にまとめてある。
+
 | ページ | 目的 | 状態 |
 |---|---|---|
 | `phase0.html` | マイク/カメラの同時保持・エコーキャンセル・Wake Lock | 完了 |

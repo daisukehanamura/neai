@@ -8,6 +8,8 @@ import { loadSettings, saveSettings, wakeWordOf, type Settings } from "./setting
 // Porcupine 本体は初期バンドルに入らない。
 import type { WakeWordDetector } from "./wakeword";
 import { emptyUsage } from "./pricing";
+import { runTool } from "./tools";
+import { TimerStore, remaining, type Timer } from "./tools/timer";
 
 
 /** 費用の目安を円で見せるための換算レート。正確な請求額ではない。 */
@@ -51,8 +53,12 @@ export default function App() {
 
   // 棚に立てて画面をこちらに向けて使うため、既定は内カメラ。
   const mediaRef = useRef(new MediaController("user"));
+  const timersRef = useRef<TimerStore | null>(null);
   const [facing, setFacing] = useState<Facing>("user");
   const [lastFrame, setLastFrame] = useState<Frame | null>(null);
+  const [timers, setTimers] = useState<Timer[]>([]);
+  const [ringing, setRinging] = useState(false);
+  const [, forceTick] = useState(0);
   const [answer, setAnswer] = useState("");
   const [answerDone, setAnswerDone] = useState(false);
   const [keepLeft, setKeepLeft] = useState(0);
@@ -111,11 +117,18 @@ export default function App() {
       onMetrics: setMetrics,
       onIdle: setIdleLeft,
       onLog: log,
-      onCapture: () => {
-        const frame = mediaRef.current.captureFrame();
-        setLastFrame(frame);
-        return frame;
-      },
+      onTool: (name, args) =>
+        runTool(name, args, {
+          captureFrame: () => {
+            const frame = mediaRef.current.captureFrame();
+            setLastFrame(frame);
+            return frame;
+          },
+          timers: timersRef.current!,
+          location: settingsRef.current.location,
+          deviceKey: localStorage.getItem("neai_device_key") ?? undefined,
+          log,
+        }),
       onAnswer: (text, done) => {
         // 空文字は新しい問いかけの合図。前の回答を消す。
         if (text) {
@@ -202,6 +215,26 @@ export default function App() {
     setPhase("idle");
     log("停止しました", "warn");
   };
+
+  // タイマーは会話とは独立して動く。LLM もネットワークも通さない。
+  useEffect(() => {
+    if (timersRef.current) return;
+    timersRef.current = new TimerStore(
+      (list) => setTimers(list),
+      (t) => {
+        log(`タイマー終了「${t.label}」`, "ok");
+        setRinging(true);
+      },
+    );
+    setTimers(timersRef.current.list());
+  }, [log]);
+
+  // 残り時間の表示を毎秒書き換える。
+  useEffect(() => {
+    if (!timers.length) return;
+    const id = setInterval(() => forceTick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [timers.length]);
 
   // 読み上げ中は末尾を追いかける。長い回答でも今読まれている所が見える。
   useEffect(() => {
@@ -323,6 +356,31 @@ export default function App() {
           </button>
           <button className="action secondary" onClick={() => void shutdown()}>停止</button>
         </div>
+      )}
+
+      {(timers.length > 0 || ringing) && (
+        <section className={`timers ${ringing ? "ringing" : ""}`}>
+          {ringing && (
+            <button
+              className="stop-alarm"
+              onClick={() => { timersRef.current?.silence(); setRinging(false); }}
+            >
+              アラームを止める
+            </button>
+          )}
+          {timers.map((t) => (
+            <div key={t.id} className="timer">
+              <span className="timer-label">{t.label}</span>
+              <span className="timer-left">{remaining(t)}</span>
+              <button
+                onClick={() => { timersRef.current?.cancel(t.id); setRinging(false); }}
+                aria-label="取り消し"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </section>
       )}
 
       {lastFrame && (

@@ -10,6 +10,10 @@
   "observability": { "enabled": true },
   "vars": {
     // 実装時点の最新 Realtime モデル。切り替えはここ一箇所で行う。
-    "REALTIME_MODEL": "gpt-realtime-2.1"
+    "REALTIME_MODEL": "gpt-realtime-2.1",
+    // 天気の既定地点。端末の設定で現在地を取得すればそちらが優先される。
+    "HOME_LAT": "35.681",
+    "HOME_LON": "139.767",
+    "HOME_NAME": "東京"
   }
 }

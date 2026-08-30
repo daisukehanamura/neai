@@ -14,6 +14,7 @@ interface Props {
 
 export default function Settings({ value, onChange, onClose, onRestartNeeded }: Props) {
   const [dirty, setDirty] = useState(false);
+  const [geo, setGeo] = useState("");
 
   const set = <K extends keyof S>(key: K, v: S[K], needsRestart = false) => {
     onChange({ ...value, [key]: v });
@@ -118,6 +119,46 @@ export default function Settings({ value, onChange, onClose, onRestartNeeded }: 
               <span className="pick-note">{m.note}</span>
             </label>
           ))}
+        </section>
+
+        <section>
+          <h3>天気の地点</h3>
+          <p className="hint">
+            未設定なら東京の予報になる。一度取得すれば保存され、以後は使われる。
+          </p>
+          <div className="place">
+            <span>
+              {value.location.lat != null
+                ? `${value.location.name ?? "現在地"}（${value.location.lat.toFixed(3)}, ${value.location.lon?.toFixed(3)}）`
+                : "未設定（東京）"}
+            </span>
+            <button
+              onClick={() => {
+                if (!navigator.geolocation) return setGeo("この端末では取得できません");
+                setGeo("取得中…");
+                navigator.geolocation.getCurrentPosition(
+                  (pos) => {
+                    set("location", {
+                      lat: pos.coords.latitude,
+                      lon: pos.coords.longitude,
+                      name: "現在地",
+                    });
+                    setGeo("");
+                  },
+                  (err) => setGeo(`取得できませんでした: ${err.message}`),
+                  { timeout: 10000 },
+                );
+              }}
+            >
+              現在地を取得
+            </button>
+          </div>
+          {geo && <p className="hint">{geo}</p>}
+          {value.location.lat != null && (
+            <button className="reset" onClick={() => set("location", {})}>
+              地点をクリア
+            </button>
+          )}
         </section>
 
         <section>

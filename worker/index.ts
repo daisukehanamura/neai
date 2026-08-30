@@ -1,4 +1,5 @@
 import { sessionConfig, type Env } from "./config";
+import { getWeather } from "./tools/weather";
 
 /** 端末から指定できるモデル。ここに無い値は無視して既定に落とす。 */
 const ALLOWED_MODELS = ["gpt-realtime-2.1", "gpt-realtime-2.1-mini"];
@@ -104,6 +105,28 @@ export default {
       if (url.pathname === "/api/session" && request.method === "POST") {
         return createCall(request, env);
       }
+
+      // 外部APIを叩くツールはここで実行する。クライアントには鍵も宛先も持たせない。
+      if (url.pathname === "/api/tools/weather") {
+        const q = url.searchParams;
+        const home = {
+          latitude: Number(env.HOME_LAT ?? 35.681),
+          longitude: Number(env.HOME_LON ?? 139.767),
+          name: env.HOME_NAME ?? "東京",
+        };
+        // 端末側で現在地を設定していれば、そちらを優先する。
+        if (q.get("lat") && q.get("lon")) {
+          home.latitude = Number(q.get("lat"));
+          home.longitude = Number(q.get("lon"));
+          home.name = q.get("name") || "現在地";
+        }
+        try {
+          return json(await getWeather({ day: q.get("day") ?? "today" }, home));
+        } catch (err) {
+          return json({ error: `天気の取得に失敗しました: ${(err as Error).message}` });
+        }
+      }
+
       return json({ error: "not found" }, 404);
     }
 

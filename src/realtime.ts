@@ -8,7 +8,7 @@
  */
 
 import { addUsage, costUsd, emptyUsage, type Usage } from "./pricing";
-import type { Frame } from "./media";
+import type { ToolResult } from "./tools";
 
 export type Phase = "idle" | "connecting" | "ready" | "listening" | "thinking" | "speaking" | "error";
 
@@ -17,6 +17,19 @@ export type Phase = "idle" | "connecting" | "ready" | "listening" | "thinking" |
  * 無操作の自動切断は費用対策。接続中はマイク音声を送り続けるため、
  * 放置するとつなぎっぱなしで1時間あたり約170円かかる。
  */
+/** 実行中に画面へ出す文言。何が起きているか分かるようにする。 */
+function labelOf(name: string): string {
+  switch (name) {
+    case "look_at_camera": return "カメラを確認しています";
+    case "get_weather": return "天気を調べています";
+    case "get_current_time": return "時刻を確認しています";
+    case "set_timer": return "タイマーを設定しています";
+    case "list_timers": return "タイマーを確認しています";
+    case "cancel_timer": return "タイマーを止めています";
+    default: return "調べています";
+  }
+}
+
 export interface SessionOptions {
   idleSec: number;
   model: string;
@@ -41,8 +54,8 @@ export interface Callbacks {
   onMetrics: (metrics: Metrics) => void;
   onIdle: (secondsLeft: number) => void;
   onLog: (message: string, kind?: "ok" | "ng" | "warn") => void;
-  /** AI が look_at_camera を呼んだときに1枚撮る。 */
-  onCapture: () => Frame | null;
+  /** AI が機能を呼んだときに実行する。 */
+  onTool: (name: string, args: Record<string, unknown>) => Promise<ToolResult>;
   /**
    * AI が話している内容のテキスト。音声と同時にストリーミングで届く。
    * @param text  ここまでの全文
@@ -269,22 +282,10 @@ export class RealtimeSession {
         this.cb.onAnswer(this.answer, true);
         break;
 
-      // AI がツールを呼んだ。引数が出揃った時点で実行する。
+      // AI が機能を呼んだ。引数が出揃った時点で実行する。
       case "response.function_call_arguments.done": {
         const call = event as unknown as { name: string; call_id: string; arguments?: string };
-        if (call.name === "look_at_camera") {
-          // 何を見ようとしたのかを残す。誤って撮ったときの原因調査に使う。
-          let target = "";
-          try {
-            target = (JSON.parse(call.arguments ?? "{}") as { target?: string }).target ?? "";
-          } catch {
-            /* 引数が壊れていても撮影自体は続ける */
-          }
-          this.cb.onLog(`カメラ呼び出し: ${target || "(理由なし)"}`, "warn");
-          this.handleLookAtCamera(call.call_id);
-        } else {
-          this.replyToTool(call.call_id, { error: `未知のツール: ${call.name}` });
-        }
+        void this.runTool(call.name, call.call_id, call.arguments);
         break;
       }
 
@@ -297,36 +298,38 @@ export class RealtimeSession {
   }
 
   /**
-   * カメラを1枚撮って会話へ画像として差し込む。
-   *
-   * 映像は WebRTC に載せていないので、常時の帯域も課金も使わない。
-   * 撮るのは呼ばれたときだけ。
+   * 機能を実行し、結果を会話へ返す。
+   * 画像が返ってきた場合は、利用者の発言として先に差し込んでから結果を返す。
    */
-  private handleLookAtCamera(callId: string): void {
+  private async runTool(name: string, callId: string, rawArgs?: string): Promise<void> {
     this.touch();
-    this.cb.onPhase("thinking", "カメラを確認しています");
-
-    const frame = this.cb.onCapture();
-    if (!frame) {
-      this.cb.onLog("フレームを取得できなかった", "ng");
-      this.replyToTool(callId, { error: "カメラの映像を取得できませんでした" });
-      return;
+    let args: Record<string, unknown> = {};
+    try {
+      args = JSON.parse(rawArgs ?? "{}") as Record<string, unknown>;
+    } catch {
+      /* 引数が壊れていても実行は試みる */
     }
-    this.cb.onLog(
-      `撮影 ${frame.width}x${frame.height} / ${Math.round(frame.bytes / 1024)}KB / ${frame.ms}ms`,
-      "ok",
-    );
+    this.cb.onLog(`機能を呼び出し: ${name} ${rawArgs ?? ""}`, "warn");
+    this.cb.onPhase("thinking", labelOf(name));
 
-    // 画像を利用者の発言として会話に足す。
-    this.send({
-      type: "conversation.item.create",
-      item: {
-        type: "message",
-        role: "user",
-        content: [{ type: "input_image", image_url: frame.dataUrl }],
-      },
-    });
-    this.replyToTool(callId, { ok: true, note: "現在のカメラ映像を追加しました" });
+    let result: ToolResult;
+    try {
+      result = await this.cb.onTool(name, args);
+    } catch (err) {
+      result = { output: { error: (err as Error).message } };
+    }
+
+    if (result.imageDataUrl) {
+      this.send({
+        type: "conversation.item.create",
+        item: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_image", image_url: result.imageDataUrl }],
+        },
+      });
+    }
+    this.replyToTool(callId, result.output);
   }
 
   /** ツールの実行結果を返し、続きの応答を生成させる。 */

@@ -92,6 +92,8 @@ export interface Settings {
   /** 回答を画面に残す秒数。 */
   keepSec: number;
   model: string;
+  /** 天気に使う地点。未設定なら Worker の既定地点になる。 */
+  location: { lat?: number; lon?: number; name?: string };
 }
 
 const KEY = "neai.settings.v1";
@@ -109,6 +111,7 @@ export const DEFAULTS: Settings = {
   idleSec: 60,
   keepSec: 90,
   model: "gpt-realtime-2.1",
+  location: {},
 };
 
 export function loadSettings(): Settings {
