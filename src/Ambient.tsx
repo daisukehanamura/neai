@@ -72,64 +72,69 @@ export default function Ambient({
 
   return (
     <div className="ambient">
-      <div className="clock">
-        <span className="hh">{hh}</span>
-        <span className="colon">:</span>
-        <span className="mm">{mm}</span>
+      {/* 横向きでは左右2カラムに分ける。縦向きでは display:contents で素通しになる。 */}
+      <div className="amb-clock">
+        <div className="clock">
+          <span className="hh">{hh}</span>
+          <span className="colon">:</span>
+          <span className="mm">{mm}</span>
+        </div>
+        <div className="date">
+          {now.getMonth() + 1}月{now.getDate()}日（{WEEK[now.getDay()]}）
+        </div>
       </div>
-      <div className="date">
-        {now.getMonth() + 1}月{now.getDate()}日（{WEEK[now.getDay()]}）
+
+      <div className="amb-info">
+        {/* 当日の最高/最低が分かれば足りる。
+            現在の気温は取得が1日3回なので古い値になり、かえって誤解を生む。 */}
+        {today && (
+          <div className="weather">
+            <span className="wx-icon">{icon(today.コード)}</span>
+            <span className="wx-range">
+              <b>{today.最高 != null ? Math.round(today.最高) : "—"}°</b>
+              <span className="wx-slash">/</span>
+              <span className="wx-low">{today.最低 != null ? Math.round(today.最低) : "—"}°</span>
+            </span>
+            <span className="wx-note">
+              {weather?.場所} {today.天気}
+              {today.降水確率 != null && ` 降水${today.降水確率}%`}
+            </span>
+          </div>
+        )}
+
+        {/* 週間予報。7日を並べて「いつ降るか」を形で見せる。
+            気温は数字、降水確率は棒の高さ。色分けはしない（離れて見ると効かないため）。 */}
+        {weather && weather.予報.length > 1 && (
+          <div className="week" role="table" aria-label="週間予報">
+            {weather.予報.map((d, i) => (
+              <div key={d.日付} className={`day ${i === 0 ? "today" : ""}`}>
+                <span className="dow">{i === 0 ? "今日" : d.曜日}</span>
+                <span className="wicon">{icon(d.コード)}</span>
+                <span className="hi">{d.最高 != null ? Math.round(d.最高) : "—"}</span>
+                <span className="lo">{d.最低 != null ? Math.round(d.最低) : "—"}</span>
+                <span className="rainbar" title={`降水確率 ${d.降水確率 ?? 0}%`}>
+                  <i style={{ height: `${Math.max(2, (d.降水確率 ?? 0) * 0.28)}px` }} />
+                </span>
+                {/* 数字は全部には付けない。傘が要る日だけ出す。 */}
+                <span className="rainpct">
+                  {(d.降水確率 ?? 0) >= 50 ? `${d.降水確率}%` : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {timers.length > 0 && (
+          <div className="ambient-timers">
+            {timers.map((t) => (
+              <div key={t.id} className="ambient-timer">
+                <span>{t.label}</span>
+                <b>{remaining(t)}</b>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-
-      {/* 当日の最高/最低が分かれば足りる。
-          現在の気温は取得が1日3回なので古い値になり、かえって誤解を生む。 */}
-      {today && (
-        <div className="weather">
-          <span className="wx-icon">{icon(today.コード)}</span>
-          <span className="wx-range">
-            <b>{today.最高 != null ? Math.round(today.最高) : "—"}°</b>
-            <span className="wx-slash">/</span>
-            <span className="wx-low">{today.最低 != null ? Math.round(today.最低) : "—"}°</span>
-          </span>
-          <span className="wx-note">
-            {weather?.場所} {today.天気}
-            {today.降水確率 != null && ` 降水${today.降水確率}%`}
-          </span>
-        </div>
-      )}
-
-      {/* 週間予報。7日を並べて「いつ降るか」を形で見せる。
-          気温は数字、降水確率は棒の高さ。色分けはしない（離れて見ると効かないため）。 */}
-      {weather && weather.予報.length > 1 && (
-        <div className="week" role="table" aria-label="週間予報">
-          {weather.予報.map((d, i) => (
-            <div key={d.日付} className={`day ${i === 0 ? "today" : ""}`}>
-              <span className="dow">{i === 0 ? "今日" : d.曜日}</span>
-              <span className="wicon">{icon(d.コード)}</span>
-              <span className="hi">{d.最高 != null ? Math.round(d.最高) : "—"}</span>
-              <span className="lo">{d.最低 != null ? Math.round(d.最低) : "—"}</span>
-              <span className="rainbar" title={`降水確率 ${d.降水確率 ?? 0}%`}>
-                <i style={{ height: `${Math.max(2, (d.降水確率 ?? 0) * 0.28)}px` }} />
-              </span>
-              {/* 数字は全部には付けない。傘が要る日だけ出す。 */}
-              <span className="rainpct">
-                {(d.降水確率 ?? 0) >= 50 ? `${d.降水確率}%` : ""}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {timers.length > 0 && (
-        <div className="ambient-timers">
-          {timers.map((t) => (
-            <div key={t.id} className="ambient-timer">
-              <span>{t.label}</span>
-              <b>{remaining(t)}</b>
-            </div>
-          ))}
-        </div>
-      )}
 
       <div className="wake-hint">
         {tapToStart ? "画面をタップして話しかける" : `「${wakeLabel}」と話しかけてください`}
