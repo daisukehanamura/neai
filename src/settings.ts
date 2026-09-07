@@ -86,6 +86,20 @@ export interface Settings {
   /** 静かなときは認識に回さない。誤検出とCPUが減る。 */
   gate: boolean;
   gateDb: number;
+  /**
+   * 声が出ている間だけ Vosk を回す（Silero VAD）。
+   * 音量だけを見るノイズゲートと違い、食器やドアの音を弾ける。
+   * 常設端末の消費電力と発熱に効くので既定で入れてある。
+   */
+  vad: boolean;
+
+  /**
+   * カメラを待機中も掴んだままにする。
+   * 掴みっぱなしは 1280x720 のキャプチャを24時間回し続けることになり、
+   * この端末で最も電力を使う部類に入る。既定では必要になってから取得する
+   * （そのぶん「これ何？」の撮影が 1秒ほど遅くなる）。
+   */
+  keepCamera: boolean;
 
   /** 無操作で自動切断するまでの秒数。接続中は課金が続くため。 */
   idleSec: number;
@@ -112,8 +126,10 @@ export const DEFAULTS: Settings = {
   gain: 6,
   compressor: true,
   highpass: true,
-  gate: false,
+  gate: true,
   gateDb: -55,
+  vad: true,
+  keepCamera: false,
   idleSec: 60,
   keepSec: 90,
   model: "gpt-realtime-2.1",

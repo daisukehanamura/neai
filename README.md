@@ -28,7 +28,11 @@ iPhone ──HTTPS──> Cloudflare Worker ──> OpenAI / Open-Meteo
 npm install
 cp .dev.vars.example .dev.vars     # OPENAI_API_KEY を記入
 ./scripts/fetch-vosk-model.sh      # ウェイクワード用モデル（約48MB）
+./scripts/fetch-vad-model.sh       # 声の判定 Silero VAD ＋ ONNX Runtime（約14MB）
 ```
+
+VAD は無くても動く（その場合は音量だけで判断する従来動作になる）が、
+待機中の消費電力と発熱が下がるので入れておくとよい。
 
 APIキーは https://platform.openai.com/api-keys で発行する。
 **使い始める前に Usage limits で月額上限を必ず設定すること。**
@@ -56,8 +60,16 @@ HTTPS が要るのは、**iOS Safari が `getUserMedia` と Wake Lock を
 2. 「ねえクラピカ」と話しかける（モデル未取得ならタップ開始になる）
 3. 60秒無操作で自動的に切断し、また待機に戻る
 
-画面右上の「設定」から、ウェイクワード・マイクの効き・モデル・動作を
+画面右上の「設定」から、ウェイクワード・マイクの効き・カメラ・モデル・動作を
 **端末上で**変更できる。`.env` の編集も再起動も要らない。
+
+給電したまま常設する端末なので、既定は**電力と発熱を抑える側**に倒してある。
+
+| 設定 | 既定 | 何が変わるか |
+|---|---|---|
+| 声の判定（VAD） | ON | 人の声が出ている間だけ Vosk を回す。生活音では動かない |
+| ノイズゲート | ON | 静かな区間は判定にも回さない。VAD より手前で効く |
+| カメラを常に掴んだままにする | OFF | OFF だと撮影時に取得する。1秒ほど遅くなる代わりに 720p の取り込みが常時走らない |
 
 ## 環境変数
 
@@ -68,6 +80,7 @@ HTTPS が要るのは、**iOS Safari が `getUserMedia` と Wake Lock を
 | `REALTIME_MODEL` | `wrangler.jsonc` | ○（既定あり） | 使用するモデル |
 | `HOME_LAT` / `HOME_LON` / `HOME_NAME` | `wrangler.jsonc` | — | 天気の既定地点（現在は市川市）。端末の設定が優先 |
 | `VITE_WAKEWORD_MODEL` | `.env` | — | Vosk モデルの場所 |
+| `VITE_VAD_DIR` | `.env` | — | Silero VAD と ONNX Runtime の場所（既定 `/vad`） |
 
 `.dev.vars` と `.env` は `.gitignore` 済み。**APIキーを絶対にコミットしないこと。**
 
@@ -78,6 +91,7 @@ HTTPS が要るのは、**iOS Safari が `getUserMedia` と Wake Lock を
 ```bash
 npx wrangler login
 npm run model                            # モデルを25MiB未満に分割
+npm run vad                              # 声の判定モデルと ONNX Runtime を配置
 npm run newkey                           # デバイスキーを作る
 npx wrangler secret put OPENAI_API_KEY
 npx wrangler secret put DEVICE_KEY

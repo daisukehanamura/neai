@@ -25,6 +25,17 @@ export interface Frame {
 const MAX_EDGE = 1024;
 const JPEG_QUALITY = 0.7;
 
+/**
+ * カメラを取り直したあと、最初の絵が出るまで待つ上限。
+ * これを超えたら諦めて「取得できなかった」を返す。黙って真っ黒を送らない。
+ */
+const VIDEO_READY_TIMEOUT_MS = 3000;
+/**
+ * 絵が出てから、露出が落ち着くまでの待ち。
+ * 取得直後の1〜2フレームは暗いままで、そのまま送ると何も写っていない写真になる。
+ */
+const VIDEO_SETTLE_MS = 250;
+
 export class MediaController {
   private stream: MediaStream | null = null;
   private video: HTMLVideoElement | null = null;
@@ -46,12 +57,79 @@ export class MediaController {
     };
   }
 
-  /** 取得済みなら同じストリームを返す。二度目の getUserMedia を呼ばない。 */
-  async acquire(): Promise<MediaStream> {
+  /**
+   * 取得済みなら同じストリームを返す。二度目の getUserMedia を呼ばない。
+   *
+   * @param withVideo カメラも最初から掴むか。false のときは音声だけ取り、
+   *   映像は必要になった時点で ensureVideo() が取りに行く。720p の
+   *   キャプチャを24時間回し続けないぶん、電力と発熱が減る。
+   */
+  async acquire(withVideo = true): Promise<MediaStream> {
     if (this.stream) return this.stream;
-    this.stream = await navigator.mediaDevices.getUserMedia(this.constraints());
-    this.attachVideo(this.stream);
+    const c = this.constraints();
+    this.stream = await navigator.mediaDevices.getUserMedia(
+      withVideo ? c : { audio: c.audio },
+    );
+    if (withVideo) this.attachVideo(this.stream);
     return this.stream;
+  }
+
+  /**
+   * 撮影できる状態にする。手放していれば取り直す。
+   *
+   * 映像だけを取り直すのは switchCamera() と同じ経路で、音声トラックには触らない。
+   * iOS で取り直せないのはマイクのほうで、カメラは入れ替えられる
+   * （[docs/ios-constraints.md](../docs/ios-constraints.md)）。
+   *
+   * @returns 絵が出るところまで行けたか。
+   */
+  async ensureVideo(): Promise<boolean> {
+    if (!this.stream) return false;
+
+    const live = this.videoTrack;
+    if (!live || live.readyState !== "live") {
+      const fresh = await navigator.mediaDevices.getUserMedia({ video: this.constraints().video });
+      const track = fresh.getVideoTracks()[0];
+      if (!track) return false;
+      if (live) this.stream.removeTrack(live);
+      this.stream.addTrack(track);
+      this.attachVideo(this.stream);
+    } else if (this.video && !this.video.srcObject) {
+      this.attachVideo(this.stream);
+    }
+
+    return await this.waitForFrame();
+  }
+
+  /** カメラを手放す。音声は触らない。待機中の消費電力を落とすために使う。 */
+  releaseVideo(): void {
+    if (!this.stream) return;
+    const tracks = this.stream.getVideoTracks();
+    if (!tracks.length) return;
+    tracks.forEach((t) => {
+      t.stop();
+      this.stream!.removeTrack(t);
+    });
+    // 止めたトラックが刺さったままだと、次に取り直したとき絵が戻らないことがある。
+    if (this.video) this.video.srcObject = null;
+  }
+
+  /** カメラを掴んでいるか。設定と実態がずれていないかの確認に使う。 */
+  get videoActive(): boolean {
+    return this.videoTrack?.readyState === "live";
+  }
+
+  /** 取得直後は videoWidth が 0 で、そのまま撮ると真っ黒な絵になる。 */
+  private async waitForFrame(): Promise<boolean> {
+    const until = performance.now() + VIDEO_READY_TIMEOUT_MS;
+    while (performance.now() < until) {
+      if (this.video?.videoWidth) {
+        await new Promise((r) => setTimeout(r, VIDEO_SETTLE_MS));
+        return !!this.video?.videoWidth;
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return false;
   }
 
   /**
@@ -61,6 +139,8 @@ export class MediaController {
   async switchCamera(): Promise<Facing> {
     this.facing = this.facing === "user" ? "environment" : "user";
     if (!this.stream) return this.facing;
+    // 手放している間は向きを覚えるだけでよい。次に ensureVideo() が取るとき効く。
+    if (!this.videoActive) return this.facing;
 
     // 先に止めてから取り直す。同時に2本掴めないため。
     this.stream.getVideoTracks().forEach((t) => {

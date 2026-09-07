@@ -172,9 +172,20 @@ export default function App() {
       onLog: log,
       onTool: (name, args) =>
         runTool(name, args, {
-          captureFrame: () => {
-            const frame = mediaRef.current.captureFrame();
+          captureFrame: async () => {
+            const media = mediaRef.current;
+            // 待機中はカメラを手放している設定がある。撮る直前に取り直す。
+            const t0 = performance.now();
+            const wasActive = media.videoActive;
+            if (!(await media.ensureVideo())) {
+              log("カメラを取得できませんでした", "ng");
+              return null;
+            }
+            if (!wasActive) log(`カメラを取得 ${Math.round(performance.now() - t0)}ms`);
+            const frame = media.captureFrame();
             setLastFrame(frame);
+            // 掴みっぱなしにしない設定なら、撮り終えたらすぐ手放す。
+            if (!settingsRef.current.keepCamera) media.releaseVideo();
             return frame;
           },
           timers: timersRef.current!,
@@ -219,10 +230,18 @@ export default function App() {
     setMode("起動中");
     await acquireWakeLock();
     try {
-      const stream = await mediaRef.current.acquire();
+      // カメラは既定では掴まない。720p を24時間回し続けるのは電力が重いので、
+      // 「これ何？」と聞かれた時点で取りに行く。
+      const keepCamera = settingsRef.current.keepCamera;
+      const stream = await mediaRef.current.acquire(keepCamera);
       const audio = stream.getAudioTracks()[0];
       const video = stream.getVideoTracks()[0];
-      log(`メディア取得 音声=${audio?.readyState} 映像=${video?.readyState ?? "なし"}`, "ok");
+      log(
+        `メディア取得 音声=${audio?.readyState} 映像=${
+          keepCamera ? video?.readyState ?? "なし" : "必要になってから取得"
+        }`,
+        "ok",
+      );
     } catch (err) {
       log(`マイクとカメラの取得に失敗: ${(err as Error).message}`, "ng");
       setMode("停止中");
@@ -257,6 +276,7 @@ export default function App() {
           highpass: s.highpass,
           gate: s.gate,
           gateDb: s.gateDb,
+          vad: s.vad,
         },
         () => void openConversation(),
         log,
@@ -433,8 +453,21 @@ export default function App() {
   };
 
   const applySettings = (next: Settings) => {
+    const prev = settingsRef.current;
     setSettings(next);
     saveSettings(next);
+
+    // カメラの保持だけは待機を作り直さずに切り替えられるので、その場で反映する。
+    if (next.keepCamera !== prev.keepCamera && mode !== "停止中") {
+      if (next.keepCamera) {
+        void mediaRef.current.ensureVideo().then((ok) => {
+          log(ok ? "カメラを掴みました" : "カメラを取得できませんでした", ok ? "ok" : "ng");
+        });
+      } else {
+        mediaRef.current.releaseVideo();
+        log("カメラを手放しました。撮影するときだけ取得します", "ok");
+      }
+    }
   };
 
   /**

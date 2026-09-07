@@ -19,4 +19,9 @@ spike/vendor/
 public/wakeword/vosk-ja.tar.gz.part*
 public/wakeword/manifest.json
 
+# scripts/fetch-vad-model.sh で再取得できる（Silero VAD と ONNX Runtime / 約14MB）。
+public/vad/silero_vad.onnx
+public/vad/*.wasm
+public/vad/*.mjs
+
 .device-key

@@ -1,0 +1,59 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>VAD 単体確認</title>
+<!-- 声の判定だけを、マイクもアプリ本体も使わずに確かめる。
+     npm run dev のあと /vad/test.html を開く。 -->
+<body style="font:14px/1.6 monospace; padding:16px; background:#111; color:#eee">
+<pre id="out">開始…</pre>
+<script type="module">
+const out = document.getElementById("out");
+const log = (s) => { out.textContent += "\n" + s; };
+
+try {
+  const t0 = performance.now();
+  const ort = await import("./ort.wasm.bundle.min.mjs");
+  log(`ORT 読み込み ${Math.round(performance.now() - t0)}ms`);
+
+  ort.env.wasm.numThreads = 1;
+  ort.env.logLevel = "error";
+
+  const t1 = performance.now();
+  const session = await ort.InferenceSession.create("./silero_vad.onnx", {
+    executionProviders: ["wasm"],
+  });
+  log(`セッション作成 ${Math.round(performance.now() - t1)}ms`);
+  log(`inputs=${session.inputNames} outputs=${session.outputNames}`);
+
+  let state = new ort.Tensor("float32", new Float32Array(2 * 128), [2, 1, 128]);
+  const sr = new ort.Tensor("int64", new BigInt64Array([16000n]), [1]);
+
+  const run = async (frame) => {
+    const res = await session.run({
+      input: new ort.Tensor("float32", frame, [1, 512]),
+      state,
+      sr,
+    });
+    state = res.stateN;
+    return res.output.data[0];
+  };
+
+  const silence = new Float32Array(512);
+  const noise = Float32Array.from({ length: 512 }, () => (Math.random() * 2 - 1) * 0.3);
+  // 声に寄せた合成波（基本波120Hz＋倍音）。本物の声ではないので参考値。
+  const voiceish = Float32Array.from({ length: 512 }, (_, i) => {
+    const t = i / 16000;
+    return 0.3 * (Math.sin(2 * Math.PI * 120 * t) + 0.5 * Math.sin(2 * Math.PI * 360 * t)
+      + 0.3 * Math.sin(2 * Math.PI * 720 * t));
+  });
+
+  for (const [name, frame] of [["無音", silence], ["雑音", noise], ["合成音", voiceish]]) {
+    const t = performance.now();
+    let p = 0;
+    for (let i = 0; i < 20; i++) p = await run(frame);
+    log(`${name}: p=${p.toFixed(4)} / 1フレームあたり ${((performance.now() - t) / 20).toFixed(2)}ms`);
+  }
+  log("OK");
+} catch (err) {
+  log("NG " + (err && err.stack ? err.stack : err));
+}
+</script>

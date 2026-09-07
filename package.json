@@ -9,6 +9,7 @@
     "proxy": "node scripts/dev-proxy.mjs",
     "deploy": "npm run build && wrangler deploy",
     "model": "./scripts/fetch-vosk-model.sh",
+    "vad": "./scripts/fetch-vad-model.sh",
     "newkey": "./scripts/new-device-key.sh"
   },
   "dependencies": {
@@ -23,6 +24,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.4",
+    "onnxruntime-web": "^1.23.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.9",
     "wrangler": "^4.42.0"

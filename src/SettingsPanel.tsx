@@ -110,6 +110,8 @@ export default function Settings({
           <p className="hint">
             遠くから届かないときに調整する。まずコンプレッサを試し、
             それでも足りなければゲインを上げる。
+            <b>声の判定とノイズゲート</b>は逆に、聞かなくていい音を捨てるためのもので、
+            待機中の消費電力と発熱を下げる。切ると常に認識が回る。
           </p>
 
           <label className="toggle">
@@ -133,10 +135,22 @@ export default function Settings({
           <label className="toggle">
             <input
               type="checkbox"
+              checked={value.vad}
+              onChange={(e) => set("vad", e.target.checked, true)}
+            />
+            <span>
+              声の判定（VAD）
+              <small>人の声が出ている間だけ認識に回す。食器やドアの音では動かない</small>
+            </span>
+          </label>
+
+          <label className="toggle">
+            <input
+              type="checkbox"
               checked={value.gate}
               onChange={(e) => set("gate", e.target.checked, true)}
             />
-            <span>ノイズゲート<small>静かなときは認識に回さない</small></span>
+            <span>ノイズゲート<small>静かなときは認識に回さない。声の判定より手前で効く</small></span>
           </label>
 
           {value.gate && (
@@ -157,6 +171,26 @@ export default function Settings({
               value={value.gain}
               onChange={(e) => set("gain", Number(e.target.value), true)}
             />
+          </label>
+        </section>
+
+        <section>
+          <h3>カメラ</h3>
+          <p className="hint">
+            掴んだままにすると 720p の取り込みが<b>ずっと回り続ける</b>。
+            常設端末では画面の次に電力を使うので、既定では手放しておき、
+            「これ何？」と聞かれてから取得する。そのぶん撮影が1秒ほど遅くなる。
+          </p>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={value.keepCamera}
+              onChange={(e) => set("keepCamera", e.target.checked)}
+            />
+            <span>
+              常に掴んだままにする
+              <small>撮影が速くなる。発熱と電力は増える</small>
+            </span>
           </label>
         </section>
 

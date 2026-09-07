@@ -21,7 +21,11 @@ export interface ToolResult {
 }
 
 export interface ToolContext {
-  captureFrame: () => Frame | null;
+  /**
+   * いまの映像を1枚。カメラを手放している設定なら、ここで取り直してから撮る。
+   * そのぶん時間がかかるので非同期。
+   */
+  captureFrame: () => Promise<Frame | null>;
   timers: TimerStore;
   /** 端末で設定した現在地。無ければ Worker の既定地点が使われる。 */
   location: { lat?: number; lon?: number; name?: string };
@@ -39,7 +43,7 @@ export async function runTool(
 ): Promise<ToolResult> {
   switch (name) {
     case "look_at_camera": {
-      const frame = ctx.captureFrame();
+      const frame = await ctx.captureFrame();
       if (!frame) {
         return { output: { error: "カメラの映像を取得できませんでした" } };
       }

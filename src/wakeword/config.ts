@@ -70,6 +70,8 @@ export interface WakeWordConfig {
   highpass: boolean;
   gate: boolean;
   gateDb: number;
+  /** 声が出ている間だけ認識に回す。モデルが無ければ無視される。 */
+  vad: boolean;
 }
 
 /** モデルが配置されているか。無ければタップ開始で動かす。 */
